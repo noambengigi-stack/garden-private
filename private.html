@@ -1,0 +1,3211 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2d6a4f">
+<title>מעקב גינות</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌳</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Rubik',sans-serif;background:#f5f0e6;direction:rtl;color:#2d3a2e;overflow-x:hidden}
+::-webkit-scrollbar{display:none}
+button{font-family:inherit}
+input,textarea,select{font-family:inherit}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ═══════════════════════════════════════════════════════════════════
+// SUPABASE CLOUD SYNC
+// ═══════════════════════════════════════════════════════════════════
+// כשתיצור פרויקט ב-supabase.com, החלף את 2 השורות הבאות:
+const SUPABASE_URL = "https://iqahjbozaijgyrsiupnz.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlxYWhqYm96YWlqZ3lyc2l1cG56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMzEzNTcsImV4cCI6MjA5MjcwNzM1N30.n-Cai9GgPwKTLubWgRRTdMAYt-1r786CDq7qYk_2jAk";
+// עד שאלה יוחלפו - האפליקציה תעבוד עם שמירה מקומית בלבד
+
+const USE_CLOUD = SUPABASE_URL.startsWith("https://") && SUPABASE_KEY.length > 20;
+const sb = USE_CLOUD ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+const ROW_ID = "gardens_main";
+const CACHE_KEY = "gardens-v1";
+const MY_SID = Math.random().toString(36).slice(2) + "-" + Date.now();
+
+// זיהוי תפקיד לפי URL: ?role=worker או ברירת מחדל admin
+const URL_ROLE = (new URLSearchParams(window.location.search).get("role") || "admin").toLowerCase();
+const IS_WORKER = URL_ROLE === "worker";
+
+function stripSid(d){ if(!d||typeof d!=="object")return d; const {_sid,...rest}=d; return rest; }
+
+async function load(){
+  if (USE_CLOUD) {
+    try {
+      const { data, error } = await sb.from("app_data").select("data").eq("id", ROW_ID).maybeSingle();
+      if (error) throw error;
+      if (data && data.data) {
+        const clean = stripSid(data.data);
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(clean)); } catch(_) {}
+        return clean;
+      }
+      return null;
+    } catch (e) {
+      console.warn("Cloud load failed, using cache:", e);
+    }
+  }
+  try { const r = localStorage.getItem(CACHE_KEY); return r ? JSON.parse(r) : null; } catch(_) { return null; }
+}
+
+async function save(v){
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(v)); } catch(_) {}
+  if (USE_CLOUD) {
+    try {
+      const payload = { ...v, _sid: MY_SID };
+      const { error } = await sb.from("app_data").upsert({ id: ROW_ID, data: payload, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.warn("Cloud save failed:", e);
+      return false;
+    }
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
+const C = {
+  bg: "#f5f0e6",       // רקע בז' חם
+  card: "#fffdf5",     // לבן שמנתי
+  cardA: "#f9f4e8",    // בז' עדין לכרטיסים משניים
+  bdr: "#e0d8c4",      // בורדר בז'
+  bdrL: "#eae2cc",     // בורדר בהיר
+  hdr: "#2d6a4f",      // ירוק יער (כותרות)
+  hdrL: "#40916c",     // ירוק בהיר
+  grn: "#2d6a4f",      // ירוק ראשי
+  grnL: "#b7e4c7",     // ירוק בהיר
+  grnP: "#d8f3dc",     // ירוק פסטל
+  grnD: "#1b4332",     // ירוק כהה
+  org: "#e09f3e",      // כתום (חיוב/אזהרה)
+  orgB: "#fff3cd",     // רקע כתום
+  orgP: "#ffeaa7",     // כתום פסטל
+  red: "#bc4749",      // אדום
+  redB: "#fde2e4",     // רקע אדום
+  blu: "#0077b6",      // כחול
+  bluB: "#d4eaf7",     // רקע כחול
+  prp: "#7b2cbf",      // סגול
+  prpB: "#e0c3fc",     // רקע סגול
+  txt: "#2d3a2e",      // טקסט ראשי
+  txtM: "#5a6b5d",     // טקסט משני
+  txtL: "#8a9a8d",     // טקסט בהיר
+  wht: "#ffffff",
+};
+
+// צבעי ערים
+const CITY_COLORS = {
+  "ירושלים": { bg: C.grnP, text: C.grn, border: C.grn, soft: "#eafaf1" },
+  "בית שמש": { bg: C.orgP, text: "#9a6b1f", border: C.org, soft: "#fff8e7" },
+};
+
+const DAYS = ["א'","ב'","ג'","ד'","ה'","ו'","ש'"];
+const DAYNAMES = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
+const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+const WORK_DAYS = [0,1,2,3,4]; // ראשון-חמישי
+
+const uid = () => Math.random().toString(36).slice(2, 9);
+const iso = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth()+1).padStart(2,"0") + "-" + String(x.getDate()).padStart(2,"0"); };
+const monthKey = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth()+1).padStart(2,"0"); };
+const fmtDM = d => { const x = new Date(d); return x.getDate() + "." + (x.getMonth()+1); };
+const fmtHeb = d => { const x = new Date(d); return x.getDate() + " ב" + MONTHS[x.getMonth()]; };
+
+// תדירות ביקורים
+const freqLabel = f => ({weekly:"שבועי",twice:"פעמיים בחודש",three:"3 פעמים",four:"4 פעמים",monthly:"פעם בחודש"})[f] || "פעם בחודש";
+const freqCount = f => ({weekly:4,twice:2,three:3,four:4,monthly:1})[f] || 1;
+
+// ═══════════════════════════════════════════════════════════════════
+// INITIAL DATA - 82 CLIENTS
+// ═══════════════════════════════════════════════════════════════════
+const INITIAL_CLIENTS = [
+  // ירושלים (28)
+  {id:"c01",name:"בועז",price:1534,frequency:"weekly",city:"ירושלים",area:"הר נוף",note:""},
+  {id:"c02",name:"תמרה",price:1003,frequency:"twice",city:"ירושלים",area:"",note:""},
+  {id:"c03",name:"מנה",price:1003,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c04",name:"דישראלי",price:300,frequency:"twice",city:"ירושלים",area:"",note:""},
+  {id:"c05",name:"זירינג-2",price:708,frequency:"twice",city:"ירושלים",area:"",note:""},
+  {id:"c06",name:"ז׳בוטינסקי דונר",price:920,frequency:"monthly",city:"ירושלים",area:"ז׳בוטינסקי",note:""},
+  {id:"c07",name:"ז׳בוטינסקי 860 ורה",price:860,frequency:"monthly",city:"ירושלים",area:"ז׳בוטינסקי",note:""},
+  {id:"c08",name:"ועד בית ז׳בוטינסקי 826",price:826,frequency:"monthly",city:"ירושלים",area:"ז׳בוטינסקי",note:""},
+  {id:"c09",name:"מאן ר״ח יאיר",price:500,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c10",name:"דפנה",price:500,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c11",name:"קליצנר בת",price:300,frequency:"monthly",city:"ירושלים",area:"קליצנר",note:""},
+  {id:"c12",name:"קליצנר בן",price:570,frequency:"monthly",city:"ירושלים",area:"קליצנר",note:""},
+  {id:"c13",name:"קליצנר אבא",price:300,frequency:"monthly",city:"ירושלים",area:"קליצנר",note:""},
+  {id:"c14",name:"פולניה 470",price:470,frequency:"monthly",city:"ירושלים",area:"פולניה",note:""},
+  {id:"c15",name:"שכן פולניה",price:400,frequency:"monthly",city:"ירושלים",area:"פולניה",note:""},
+  {id:"c16",name:"שוקרון",price:400,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c17",name:"וויס דן 7",price:500,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c18",name:"וויץ לב העברי",price:500,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c19",name:"הר נוף",price:500,frequency:"monthly",city:"ירושלים",area:"הר נוף",note:""},
+  {id:"c20",name:"ליבוהף",price:500,frequency:"monthly",city:"ירושלים",area:"",note:"לא בטוח במחיר"},
+  {id:"c21",name:"יעל ר״ח ראובן",price:400,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c22",name:"בוסטן בקעה",price:400,frequency:"monthly",city:"ירושלים",area:"בקעה",note:""},
+  {id:"c23",name:"יהואש 5",price:1003,frequency:"monthly",city:"ירושלים",area:"בקעה",note:""},
+  {id:"c24",name:"יאיר 1",price:585,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c25",name:"גרינברג",price:1003,frequency:"twice",city:"ירושלים",area:"",note:""},
+  {id:"c26",name:"אביחי קרמר",price:767,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  {id:"c27",name:"רחל אימנו",price:2360,frequency:"twice",city:"ירושלים",area:"רחל אימנו",note:""},
+  {id:"c28",name:"ליימן",price:826,frequency:"monthly",city:"ירושלים",area:"",note:""},
+  // בית שמש (54)
+  {id:"c29",name:"לזניק",price:470,frequency:"weekly",city:"בית שמש",area:"",note:""},
+  {id:"c30",name:"רוזמן",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c31",name:"סורשה",price:570,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c32",name:"אסקוט",price:531,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c33",name:"לוסטמן",price:526,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c34",name:"אנדרו",price:350,frequency:"weekly",city:"בית שמש",area:"",note:""},
+  {id:"c35",name:"שלומצי",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c36",name:"גננת",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c37",name:"אמא נווה",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c38",name:"עליזה ראובן",price:500,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c39",name:"ארלין",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c40",name:"רוברט",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c41",name:"סולומון",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c42",name:"פינה",price:500,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c43",name:"דריוס",price:760,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c44",name:"הציפורן",price:550,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c45",name:"ספטנר",price:1003,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c46",name:"מונדרר",price:350,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c47",name:"זלצר",price:400,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c48",name:"גרין",price:350,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c49",name:"ברכה",price:350,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c50",name:"כל טוב",price:300,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c51",name:"רשע הירש",price:580,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c52",name:"מימי",price:300,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c53",name:"רפאים חדש",price:300,frequency:"monthly",city:"בית שמש",area:"רפאים",note:""},
+  {id:"c54",name:"אברהם",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c55",name:"אינוק",price:300,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c56",name:"מנחם",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c57",name:"יוני פיינר",price:400,frequency:"monthly",city:"בית שמש",area:"",note:"אחת לחודשיים"},
+  {id:"c58",name:"נחל תמר",price:531,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c59",name:"ברוך",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c60",name:"גפנר",price:300,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c61",name:"טוכמן",price:350,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c62",name:"צוקר",price:350,frequency:"monthly",city:"בית שמש",area:"",note:"אחת לחודשיים"},
+  {id:"c63",name:"שור",price:300,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c64",name:"דן גורדון",price:600,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c65",name:"איסנה",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c66",name:"נחושה",price:0,frequency:"monthly",city:"בית שמש",area:"",note:"מחיר לא צוין"},
+  {id:"c67",name:"גוד",price:300,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c68",name:"איזנשטיין",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c69",name:"ורדי",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c70",name:"דמבי",price:350,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c71",name:"פנינה",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c72",name:"גרוס",price:300,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c73",name:"זיוה",price:250,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c74",name:"גאנץ",price:350,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c75",name:"שוורץ",price:350,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c76",name:"חני רוזנברג",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c77",name:"סחיי",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c78",name:"חניה עין גדי",price:500,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c79",name:"וויס",price:400,frequency:"monthly",city:"בית שמש",area:"",note:"אחת לחודשיים"},
+  {id:"c80",name:"עץ הדעת",price:678,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c81",name:"ג׳ייסון",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+  {id:"c82",name:"אשמן",price:400,frequency:"monthly",city:"בית שמש",area:"",note:""},
+];
+
+// מבנה נתונים:
+// schedule[dateKey] = [{
+//   id: unique_visit_id,
+//   clientId: "c01",
+//   dayNote: "הערה רק ליום זה",
+//   lastVisitNote: "הערה שהושארה מביקור קודם - להעביר לטיפול",
+//   lastVisitNoteHandled: false,  // האם העובד טיפל בה
+//   newNote: "הערה חדשה שהעובד רשם היום - תעבור לביקור הבא",
+//   extras: [ { desc: "גיזום עץ", amount: 200 } ],
+//   done: false,
+//   doneAt: null  // timestamp
+// }]
+// monthlyStatus[monthKey][clientId] = { paid, visitsDone }
+// clients[].permanentNote = "הערה קבועה שתופיע תמיד"
+// oneTimeJobs = [{ id, clientName, city, area, price, date, done, doneAt, note }]  // עבודות חד-פעמיות
+// reminders = [{ id, text, dueDate, done, doneAt, createdAt }]  // תזכורות - dueDate אופציונלי
+// settings = { remindersOrder: "newest" | "oldest" }
+// projects = [{
+//   id, title, description,
+//   linkedClientId,  // אופציונלי - אם מקושר ללקוח קיים
+//   clientName, city, area,  // אם לא מקושר ללקוח
+//   startDate, endDate,  // תאריכים (אפשר או יום יחיד או טווח)
+//   isRange,  // האם טווח תאריכים או יום יחיד
+//   totalPrice,  // הסכום הכולל ללקוח
+//   expenses: [{ id, desc, amount, date }],  // הוצאות על הפרויקט
+//   photos: [],  // URLs או base64
+//   status: "active" | "done",
+//   doneAt
+// }]
+
+const EMPTY = {
+  clients: INITIAL_CLIENTS,
+  schedule: {},
+  monthlyStatus: {},
+  oneTimeJobs: [],
+  reminders: [],
+  settings: { remindersOrder: "newest" },
+  projects: [],
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════════
+function App() {
+  const [data, setData] = useState(EMPTY);
+  const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState("home"); // home | day | clients | summary
+  const [selectedDay, setSelectedDay] = useState(iso(new Date()));
+  const [monthView, setMonthView] = useState(new Date());
+  const [modal, setModal] = useState(null); // {type, data}
+  const [syncStatus, setSyncStatus] = useState("saved");
+  const saveTimer = useRef(null);
+
+  // Load data on mount
+  useEffect(() => {
+    (async () => {
+      const d = await load();
+      if (d && d.clients) setData({ ...EMPTY, ...d });
+      else setData(EMPTY);
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Debounced save on change
+  useEffect(() => {
+    if (!loaded) return;
+    setSyncStatus("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const ok = await save(data);
+      setSyncStatus(ok ? "saved" : "error");
+    }, 400);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [data, loaded]);
+
+  // Realtime sync from other devices
+  useEffect(() => {
+    if (!loaded || !USE_CLOUD) return;
+    const channel = sb.channel("app_data_" + ROW_ID)
+      .on("postgres_changes",
+          { event: "*", schema: "public", table: "app_data", filter: "id=eq." + ROW_ID },
+          (payload) => {
+            const incoming = payload.new && payload.new.data;
+            if (!incoming) return;
+            if (incoming._sid === MY_SID) return;
+            const clean = stripSid(incoming);
+            setData(p => JSON.stringify(p) === JSON.stringify(clean) ? p : { ...EMPTY, ...clean });
+          })
+      .subscribe();
+    return () => { sb.removeChannel(channel); };
+  }, [loaded]);
+
+  const update = fn => setData(p => { const n = JSON.parse(JSON.stringify(p)); fn(n); return n; });
+
+  // Helpers
+  const todayISO = iso(new Date());
+  const clientById = id => data.clients.find(c => c.id === id);
+
+  // מוצא את כל הלקוחות שיש להם תזכורת פתוחה (לא שובצו עדיין החודש) - נחשב בדף הבית
+  const getUnscheduledThisMonth = () => {
+    const mk = monthKey(monthView);
+    const scheduledInMonth = {};
+    Object.entries(data.schedule || {}).forEach(([dayKey, items]) => {
+      if (dayKey.startsWith(mk)) {
+        (items || []).forEach(item => {
+          scheduledInMonth[item.clientId] = (scheduledInMonth[item.clientId] || 0) + 1;
+        });
+      }
+    });
+    return data.clients.filter(c => {
+      const needed = freqCount(c.frequency);
+      const sched = scheduledInMonth[c.id] || 0;
+      return sched < needed;
+    });
+  };
+
+  // Actions
+  const toggleVisitDone = (dayKey, visitId) => {
+    update(d => {
+      if (!d.schedule[dayKey]) return;
+      const item = d.schedule[dayKey].find(x => x.id === visitId);
+      if (!item) return;
+      item.done = !item.done;
+      item.doneAt = item.done ? new Date().toISOString() : null;
+      // Update monthly visits count
+      const mk = dayKey.slice(0, 7);
+      if (!d.monthlyStatus[mk]) d.monthlyStatus[mk] = {};
+      if (!d.monthlyStatus[mk][item.clientId]) d.monthlyStatus[mk][item.clientId] = { paid: false, visitsDone: 0 };
+      const count = Object.entries(d.schedule).reduce((sum, [k, items]) => {
+        if (k.startsWith(mk)) {
+          return sum + (items || []).filter(x => x.clientId === item.clientId && x.done).length;
+        }
+        return sum;
+      }, 0);
+      d.monthlyStatus[mk][item.clientId].visitsDone = count;
+    });
+  };
+
+  // סימון שהערה מביקור קודם טופלה
+  const markLastNoteHandled = (dayKey, visitId) => {
+    update(d => {
+      const item = (d.schedule[dayKey] || []).find(x => x.id === visitId);
+      if (item) item.lastVisitNoteHandled = true;
+    });
+  };
+
+  // עדכון הערה חדשה שהעובד רושם
+  const updateNewNote = (dayKey, visitId, note) => {
+    update(d => {
+      const item = (d.schedule[dayKey] || []).find(x => x.id === visitId);
+      if (item) {
+        item.newNote = note;
+        item.newNoteForwarded = false;
+      }
+    });
+  };
+
+  // הוספת תוספת (תוספת לביקור קיים)
+  const addExtra = (dayKey, visitId, desc, amount) => {
+    update(d => {
+      const item = (d.schedule[dayKey] || []).find(x => x.id === visitId);
+      if (item) {
+        if (!item.extras) item.extras = [];
+        item.extras.push({ id: uid(), desc, amount: Number(amount) || 0 });
+      }
+    });
+  };
+
+  const removeExtra = (dayKey, visitId, extraId) => {
+    update(d => {
+      const item = (d.schedule[dayKey] || []).find(x => x.id === visitId);
+      if (item && item.extras) {
+        item.extras = item.extras.filter(e => e.id !== extraId);
+      }
+    });
+  };
+
+  // עדכון הערה קבועה של לקוח
+  const updatePermanentNote = (clientId, note) => {
+    update(d => {
+      const c = d.clients.find(cl => cl.id === clientId);
+      if (c) c.permanentNote = note;
+    });
+  };
+
+  // עבודות חד-פעמיות
+  const addOneTimeJob = (job) => {
+    update(d => {
+      if (!d.oneTimeJobs) d.oneTimeJobs = [];
+      d.oneTimeJobs.push({ ...job, id: uid(), done: false, doneAt: null });
+    });
+  };
+
+  const toggleOneTimeJob = (jobId) => {
+    update(d => {
+      const j = (d.oneTimeJobs || []).find(x => x.id === jobId);
+      if (j) {
+        j.done = !j.done;
+        j.doneAt = j.done ? new Date().toISOString() : null;
+      }
+    });
+  };
+
+  const deleteOneTimeJob = (jobId) => {
+    update(d => {
+      d.oneTimeJobs = (d.oneTimeJobs || []).filter(x => x.id !== jobId);
+    });
+  };
+
+  // תזכורות - Reminders
+  const addReminder = (text, dueDate = null) => {
+    update(d => {
+      if (!d.reminders) d.reminders = [];
+      d.reminders.push({
+        id: uid(),
+        text,
+        dueDate: dueDate || null,
+        done: false,
+        doneAt: null,
+        createdAt: new Date().toISOString()
+      });
+    });
+  };
+
+  const toggleReminder = (id) => {
+    update(d => {
+      const r = (d.reminders || []).find(x => x.id === id);
+      if (r) {
+        r.done = !r.done;
+        r.doneAt = r.done ? new Date().toISOString() : null;
+      }
+    });
+  };
+
+  const deleteReminder = (id) => {
+    update(d => {
+      d.reminders = (d.reminders || []).filter(x => x.id !== id);
+    });
+  };
+
+  const editReminder = (id, text, dueDate) => {
+    update(d => {
+      const r = (d.reminders || []).find(x => x.id === id);
+      if (r) {
+        r.text = text;
+        r.dueDate = dueDate || null;
+      }
+    });
+  };
+
+  const updateSetting = (key, value) => {
+    update(d => {
+      if (!d.settings) d.settings = {};
+      d.settings[key] = value;
+    });
+  };
+
+  // פרויקטים
+  const addProject = (project) => {
+    update(d => {
+      if (!d.projects) d.projects = [];
+      d.projects.push({
+        ...project,
+        id: uid(),
+        expenses: project.expenses || [],
+        photos: project.photos || [],
+        status: "active",
+        doneAt: null,
+        createdAt: new Date().toISOString()
+      });
+    });
+  };
+
+  const updateProject = (id, updates) => {
+    update(d => {
+      const p = (d.projects || []).find(x => x.id === id);
+      if (p) Object.assign(p, updates);
+    });
+  };
+
+  const deleteProject = (id) => {
+    update(d => {
+      d.projects = (d.projects || []).filter(x => x.id !== id);
+    });
+  };
+
+  const toggleProjectDone = (id) => {
+    update(d => {
+      const p = (d.projects || []).find(x => x.id === id);
+      if (p) {
+        p.status = p.status === "done" ? "active" : "done";
+        p.doneAt = p.status === "done" ? new Date().toISOString() : null;
+      }
+    });
+  };
+
+  const addProjectExpense = (projectId, desc, amount, date) => {
+    update(d => {
+      const p = (d.projects || []).find(x => x.id === projectId);
+      if (p) {
+        if (!p.expenses) p.expenses = [];
+        p.expenses.push({
+          id: uid(),
+          desc,
+          amount: Number(amount) || 0,
+          date: date || iso(new Date())
+        });
+      }
+    });
+  };
+
+  const removeProjectExpense = (projectId, expenseId) => {
+    update(d => {
+      const p = (d.projects || []).find(x => x.id === projectId);
+      if (p && p.expenses) {
+        p.expenses = p.expenses.filter(e => e.id !== expenseId);
+      }
+    });
+  };
+
+  const addProjectPhoto = (projectId, photoData) => {
+    update(d => {
+      const p = (d.projects || []).find(x => x.id === projectId);
+      if (p) {
+        if (!p.photos) p.photos = [];
+        p.photos.push({
+          id: uid(),
+          data: photoData,
+          date: new Date().toISOString()
+        });
+      }
+    });
+  };
+
+  const removeProjectPhoto = (projectId, photoId) => {
+    update(d => {
+      const p = (d.projects || []).find(x => x.id === projectId);
+      if (p && p.photos) {
+        p.photos = p.photos.filter(ph => ph.id !== photoId);
+      }
+    });
+  };
+
+  const togglePaid = (mk, clientId) => {
+    update(d => {
+      if (!d.monthlyStatus[mk]) d.monthlyStatus[mk] = {};
+      if (!d.monthlyStatus[mk][clientId]) d.monthlyStatus[mk][clientId] = { paid: false, visitsDone: 0 };
+      d.monthlyStatus[mk][clientId].paid = !d.monthlyStatus[mk][clientId].paid;
+    });
+  };
+
+  // חשב את התאריך הבא לפי תדירות - עם דחייה ליום עבודה קרוב
+  // עבור בית שמש: מעדיף ראשון (0) או חמישי (4)
+  const computeNextDate = (baseDate, frequency, city = null) => {
+    const base = new Date(baseDate);
+    let next = new Date(base);
+
+    switch (frequency) {
+      case "weekly": next.setDate(next.getDate() + 7); break;
+      case "twice": next.setDate(next.getDate() + 15); break;
+      case "three": next.setDate(next.getDate() + 10); break;
+      case "four": next.setDate(next.getDate() + 7); break;
+      case "monthly":
+      default: next.setMonth(next.getMonth() + 1); break;
+    }
+
+    // דחה משישי/שבת ליום עבודה
+    const dow = next.getDay();
+    if (!WORK_DAYS.includes(dow)) {
+      if (dow === 5) next.setDate(next.getDate() + 2);      // שישי → ראשון
+      else if (dow === 6) next.setDate(next.getDate() + 1); // שבת → ראשון
+    }
+
+    // עבור בית שמש: העדף ראשון (0) או חמישי (4)
+    // מצא את היום הכי קרוב שהוא ראשון או חמישי (בטווח של ±3 ימים)
+    if (city === "בית שמש") {
+      const targetDow = next.getDay();
+      if (targetDow !== 0 && targetDow !== 4) {
+        // חשב מרחק לראשון ולחמישי הקרובים ביותר
+        const distToSun = targetDow > 4 ? 7 - targetDow : -targetDow; // ראשון קרוב
+        const distToThu = 4 - targetDow; // חמישי קרוב (יכול להיות שלילי)
+
+        // בחר את המרחק הקטן יותר באופן מוחלט
+        const bestDist = Math.abs(distToSun) <= Math.abs(distToThu) ? distToSun : distToThu;
+
+        // רק אם המרחק סביר (עד 3 ימים)
+        if (Math.abs(bestDist) <= 3) {
+          next.setDate(next.getDate() + bestDist);
+        }
+      }
+    }
+
+    return iso(next);
+  };
+
+  const addClientToDay = (dayKey, clientId, dayNote = "", createRecurring = false) => {
+    update(d => {
+      if (!d.schedule[dayKey]) d.schedule[dayKey] = [];
+
+      // אם הלקוח כבר קיים באותו יום - לא להוסיף שוב
+      if (d.schedule[dayKey].find(x => x.clientId === clientId)) return;
+
+      // מצא הערה מהביקור האחרון
+      let lastVisitNote = "";
+      const sortedDays = Object.keys(d.schedule).filter(k => k < dayKey).sort().reverse();
+      for (const prevDay of sortedDays) {
+        const prev = (d.schedule[prevDay] || []).find(x => x.clientId === clientId);
+        if (prev && prev.newNote && !prev.newNoteForwarded) {
+          lastVisitNote = prev.newNote;
+          prev.newNoteForwarded = true;
+          break;
+        }
+        if (prev && prev.lastVisitNote && !prev.lastVisitNoteHandled) {
+          lastVisitNote = prev.lastVisitNote;
+          break;
+        }
+      }
+
+      d.schedule[dayKey].push({
+        id: uid(),
+        clientId,
+        dayNote: dayNote || "",
+        lastVisitNote,
+        lastVisitNoteHandled: !lastVisitNote,
+        newNote: "",
+        extras: [],
+        done: false,
+        doneAt: null,
+        isRecurring: createRecurring  // סמן שהשיבוץ הוא חלק מסדרה חוזרת
+      });
+
+      // אם createRecurring=true - צור חזרות שמכסות 3 חודשים מלאים מתאריך ההתחלה
+      // כך שאם יש 5 ימי חמישי בחודש - הם כולם יכוסו (לא מוגבל ל-4)
+      if (createRecurring) {
+        const client = d.clients.find(c => c.id === clientId);
+        if (!client) return;
+
+        // חשב את תאריך הסיום: 3 חודשים בדיוק מהשיבוץ הראשון
+        const startDate = new Date(dayKey);
+        const endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + 3);
+        const endKey = iso(endDate);
+
+        let currentDateKey = dayKey;
+        let safetyLimit = 60; // גבול בטיחות - עד 60 חזרות (יותר מספיק ל-3 חודשים בתדירות שבועית = ~13)
+
+        while (safetyLimit-- > 0) {
+          const nextKey = computeNextDate(currentDateKey, client.frequency || "monthly", client.city);
+
+          // עצור כשעוברים את תאריך הסיום
+          if (nextKey > endKey) break;
+
+          if (!d.schedule[nextKey]) d.schedule[nextKey] = [];
+
+          // רק אם לא קיים כבר
+          if (!d.schedule[nextKey].find(x => x.clientId === clientId)) {
+            d.schedule[nextKey].push({
+              id: uid(),
+              clientId,
+              dayNote: "",
+              lastVisitNote: "",
+              lastVisitNoteHandled: true,
+              newNote: "",
+              extras: [],
+              done: false,
+              doneAt: null,
+              isRecurring: true
+            });
+          }
+
+          currentDateKey = nextKey;
+        }
+      }
+    });
+  };
+
+  // ביטול סדרה חוזרת - מוחק את כל השיבוצים העתידיים של לקוח זה
+  const cancelRecurring = (clientId, fromDayKey) => {
+    update(d => {
+      Object.keys(d.schedule).forEach(k => {
+        if (k > fromDayKey) {
+          d.schedule[k] = d.schedule[k].filter(x => {
+            // שמור רק אם הוא לא ביקור חוזר, או אם זה לא הלקוח שאנחנו מבטלים
+            if (x.clientId !== clientId) return true;
+            return !x.isRecurring;
+          });
+          if (d.schedule[k].length === 0) delete d.schedule[k];
+        }
+      });
+    });
+  };
+
+  const removeClientFromDay = (dayKey, visitId) => {
+    update(d => {
+      if (d.schedule[dayKey]) {
+        d.schedule[dayKey] = d.schedule[dayKey].filter(x => x.id !== visitId);
+        if (d.schedule[dayKey].length === 0) delete d.schedule[dayKey];
+      }
+    });
+  };
+
+  const updateDayNote = (dayKey, visitId, note) => {
+    update(d => {
+      const item = (d.schedule[dayKey] || []).find(x => x.id === visitId);
+      if (item) item.dayNote = note;
+    });
+  };
+
+  const addClient = (client) => {
+    update(d => { d.clients.push({ ...client, id: uid() }); });
+  };
+
+  const editClient = (client) => {
+    update(d => {
+      const idx = d.clients.findIndex(c => c.id === client.id);
+      if (idx >= 0) d.clients[idx] = client;
+    });
+  };
+
+  const deleteClient = (id) => {
+    update(d => {
+      d.clients = d.clients.filter(c => c.id !== id);
+      Object.keys(d.schedule).forEach(k => {
+        d.schedule[k] = d.schedule[k].filter(x => x.clientId !== id);
+        if (d.schedule[k].length === 0) delete d.schedule[k];
+      });
+    });
+  };
+
+  if (!loaded) {
+    return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.grn,fontSize:18}}>טוען... 🌳</div>;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HEADER
+  // ═══════════════════════════════════════════════════════════════════
+  const inSubView = view !== "home";
+  const Header = () => (
+    <div style={{background:`linear-gradient(135deg, ${C.hdr} 0%, ${C.hdrL} 100%)`,color:"#fff",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        {inSubView && (
+          <button onClick={() => setView("home")} style={{background:"rgba(255,255,255,0.18)",border:"none",color:"#fff",width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>←</button>
+        )}
+        <div style={{fontSize:18,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+          <span>🌳</span>
+          <span>{view === "home" ? "מעקב גינות" : view === "day" ? "יום" : view === "clients" ? "לקוחות" : "סיכום חודשי"}</span>
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        {/* סטטוס סנכרון */}
+        <div style={{fontSize:11,opacity:0.8,display:"flex",alignItems:"center",gap:4}}>
+          {syncStatus === "saving" && <><span style={{width:8,height:8,borderRadius:"50%",background:"#ffc857"}}></span>שומר...</>}
+          {syncStatus === "saved" && <><span style={{width:8,height:8,borderRadius:"50%",background:"#b7e4c7"}}></span>{USE_CLOUD ? "מסונכרן" : "נשמר"}</>}
+          {syncStatus === "error" && <><span style={{width:8,height:8,borderRadius:"50%",background:"#ff6b6b"}}></span>שגיאה</>}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // HOME VIEW - המסך הראשי
+  // ═══════════════════════════════════════════════════════════════════
+  const renderHome = () => {
+    const mk = monthKey(monthView);
+    const mStatus = data.monthlyStatus[mk] || {};
+
+    // התראות
+    const unpaidCount = data.clients.filter(c => {
+      const st = mStatus[c.id] || {};
+      return !st.paid;
+    }).length;
+
+    const totalExpectedClients = data.clients.reduce((s, c) => s + (c.price * freqCount(c.frequency)), 0);
+    const totalPaidClients = data.clients.reduce((s, c) => {
+      const st = mStatus[c.id] || {};
+      return st.paid ? s + (c.price * freqCount(c.frequency)) : s;
+    }, 0);
+
+    // חישוב פרויקטים של החודש הנוכחי
+    const currentMonthKey = monthKey(monthView);
+    const monthProjects = (data.projects || []).filter(p => {
+      // הפרויקט נמצא בחודש הזה אם תאריך ההתחלה נמצא בחודש
+      return (p.startDate || "").startsWith(currentMonthKey);
+    });
+    const projectsExpected = monthProjects.reduce((s, p) => s + (p.totalPrice || 0), 0);
+    const projectsPaid = monthProjects.reduce((s, p) => p.status === "done" ? s + (p.totalPrice || 0) : s, 0);
+
+    // סה"כ צפי ונגבה כולל פרויקטים
+    const totalExpected = totalExpectedClients + projectsExpected;
+    const totalPaid = totalPaidClients + projectsPaid;
+
+    const unscheduled = getUnscheduledThisMonth();
+
+    // לקוחות של היום
+    const todaySchedule = data.schedule[todayISO] || [];
+    const todayClients = todaySchedule.map(item => ({
+      ...item,
+      client: clientById(item.clientId)
+    })).filter(x => x.client);
+    const todayPending = todayClients.filter(x => !x.done);
+    const todayDone = todayClients.filter(x => x.done);
+    const todayRevenue = todayClients.reduce((s, x) => s + x.client.price, 0);
+
+    return (
+      <div style={{padding:12,paddingBottom:80}}>
+        {/* כרטיס היום - קומפקטי ומוביל ליום */}
+        <button
+          onClick={() => { setSelectedDay(todayISO); setView("day"); }}
+          style={{
+            width:"100%",
+            background:todayClients.length > 0 ? `linear-gradient(135deg, ${C.hdr} 0%, ${C.hdrL} 100%)` : C.card,
+            color:todayClients.length > 0 ? "#fff" : C.txt,
+            border:todayClients.length > 0 ? "none" : `1px solid ${C.bdr}`,
+            borderRadius:14,
+            padding:"14px 16px",
+            marginBottom:12,
+            cursor:"pointer",
+            display:"flex",
+            justifyContent:"space-between",
+            alignItems:"center",
+            textAlign:"right",
+            boxShadow:todayClients.length > 0 ? "0 3px 10px rgba(45,106,79,0.2)" : "none"
+          }}
+        >
+          <div>
+            <div style={{fontSize:11,opacity:0.9,fontWeight:600,marginBottom:2}}>📅 היום · {DAYNAMES[new Date().getDay()]}</div>
+            {todayClients.length > 0 ? (
+              <>
+                <div style={{fontSize:17,fontWeight:700}}>{todayPending.length} לקוחות ממתינים</div>
+                <div style={{fontSize:11,opacity:0.85,marginTop:2}}>
+                  {todayDone.length}/{todayClients.length} בוצעו · ₪{todayRevenue.toLocaleString()}
+                </div>
+              </>
+            ) : (
+              <div style={{fontSize:14,color:C.txtM}}>אין ביקורים להיום</div>
+            )}
+          </div>
+          <div style={{fontSize:22,opacity:0.9}}>←</div>
+        </button>
+
+        {/* 📝 יומן תזכורות - חדש */}
+        <RemindersSection
+          reminders={data.reminders || []}
+          settings={data.settings || {}}
+          unscheduledCount={unscheduled.length}
+          onOpenUnscheduled={() => setModal({type:"unscheduled"})}
+          onAdd={(text, dueDate) => addReminder(text, dueDate)}
+          onToggle={toggleReminder}
+          onDelete={deleteReminder}
+          onEdit={editReminder}
+          onUpdateSetting={updateSetting}
+        />
+
+        {/* 🎯 מרכז תזמון חכם - לקוחות מוכנים לתזמון הבא */}
+        <SmartScheduleSection
+          data={data}
+          onSchedule={(clientId, dayKey, recurring) => addClientToDay(dayKey, clientId, "", recurring)}
+          onOpenDay={(dayKey) => { setSelectedDay(dayKey); setView("day"); }}
+        />
+
+
+
+        {/* סטטיסטיקות כלליות */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+          <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.bdr}`,padding:12}}>
+            <div style={{fontSize:11,color:C.txtM,marginBottom:4}}>צפוי החודש</div>
+            <div style={{fontSize:20,fontWeight:700,color:C.grn}}>₪{totalExpected.toLocaleString()}</div>
+            {projectsExpected > 0 && (
+              <div style={{fontSize:10,color:C.prp,marginTop:2,fontWeight:600}}>🚧 כולל ₪{projectsExpected.toLocaleString()} פרויקטים</div>
+            )}
+          </div>
+          <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.bdr}`,padding:12}}>
+            <div style={{fontSize:11,color:C.txtM,marginBottom:4}}>נגבה</div>
+            <div style={{fontSize:20,fontWeight:700,color:C.org}}>₪{totalPaid.toLocaleString()}</div>
+            <div style={{fontSize:10,color:C.txtL,marginTop:2}}>{Math.round((totalPaid/(totalExpected||1))*100)}% גביה</div>
+          </div>
+        </div>
+
+        {/* יומן חודשי */}
+        <MonthlyCalendar
+          monthView={monthView}
+          setMonthView={setMonthView}
+          data={data}
+          onDayClick={(dayKey) => { setSelectedDay(dayKey); setView("day"); }}
+        />
+
+        {/* פעולות מהירות */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:8,marginTop:12}}>
+          <button onClick={() => setView("clients")} style={{padding:"14px 6px",borderRadius:12,border:"none",background:C.hdr,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <span style={{fontSize:22}}>👥</span>
+            לקוחות
+          </button>
+          <button onClick={() => setView("summary")} style={{padding:"14px 6px",borderRadius:12,border:"none",background:C.grn,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <span style={{fontSize:22}}>📊</span>
+            סיכום חודשי
+          </button>
+          <button onClick={() => setModal({type:"addClient"})} style={{padding:"14px 6px",borderRadius:12,border:"none",background:C.blu,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <span style={{fontSize:22}}>➕</span>
+            לקוח חדש
+          </button>
+        </div>
+
+        {/* עבודות חד-פעמיות */}
+        <OneTimeJobsSection data={data} setModal={setModal} toggleOneTimeJob={toggleOneTimeJob} deleteOneTimeJob={deleteOneTimeJob} />
+
+        {/* קישור לעובדים */}
+        <div style={{marginTop:12,padding:12,background:C.hdr,borderRadius:12,color:"#fff"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{fontSize:13,fontWeight:700}}>🧑‍🌾 קישור לעובדים</div>
+            <button onClick={() => {
+              const url = window.location.origin + window.location.pathname + "?role=worker";
+              navigator.clipboard.writeText(url).then(() => alert("הקישור הועתק!"));
+            }} style={{background:"#fff",color:C.hdr,border:"none",borderRadius:16,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>העתק ←</button>
+          </div>
+          <div style={{fontSize:11,opacity:0.9,lineHeight:1.5}}>שלח לעובדים את הקישור עם <code style={{background:"rgba(255,255,255,0.2)",padding:"1px 4px",borderRadius:3}}>?role=worker</code> - הם יראו רק את הלקוחות של היום עם הערות</div>
+        </div>
+
+        {/* הערה אם אין סנכרון ענן */}
+        {!USE_CLOUD && (
+          <div style={{marginTop:10,padding:10,background:C.bluB,borderRadius:10,border:`1px solid ${C.blu}`,fontSize:11,color:C.blu,textAlign:"center"}}>
+            💡 להפעלת סנכרון בין מכשירים - ערוך את הקובץ והוסף מפתחות Supabase
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // תצוגת עובד - מסך מלא ונפרד
+  if (IS_WORKER) {
+    return <WorkerApp data={data} toggleVisitDone={toggleVisitDone} updateNewNote={updateNewNote} markLastNoteHandled={markLastNoteHandled} addExtra={addExtra} removeExtra={removeExtra} syncStatus={syncStatus} />;
+  }
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      <Header />
+      {view === "home" && renderHome()}
+      {view === "day" && <DayView selectedDay={selectedDay} setSelectedDay={setSelectedDay} data={data} toggleVisitDone={toggleVisitDone} addClientToDay={addClientToDay} removeClientFromDay={removeClientFromDay} updateDayNote={updateDayNote} updateNewNote={updateNewNote} markLastNoteHandled={markLastNoteHandled} addExtra={addExtra} removeExtra={removeExtra} updatePermanentNote={updatePermanentNote} addProject={addProject} toggleProjectDone={toggleProjectDone} deleteProject={deleteProject} updateProject={updateProject} addProjectExpense={addProjectExpense} removeProjectExpense={removeProjectExpense} />}
+      {view === "clients" && <ClientsView data={data} setModal={setModal} editClient={editClient} deleteClient={deleteClient} />}
+      {view === "summary" && <SummaryView data={data} monthView={monthView} setMonthView={setMonthView} togglePaid={togglePaid} />}
+
+      {/* Modals */}
+      {modal && <Modal modal={modal} setModal={setModal} data={data} addClient={addClient} editClient={editClient} addOneTimeJob={addOneTimeJob} onClose={() => setModal(null)} />}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WORKER APP - תצוגה נפרדת לעובדים
+// ═══════════════════════════════════════════════════════════════════
+function WorkerApp({ data, toggleVisitDone, updateNewNote, markLastNoteHandled, addExtra, removeExtra, syncStatus }) {
+  const [selectedDay, setSelectedDay] = useState(iso(new Date()));
+  const [expandedVisit, setExpandedVisit] = useState(null);
+  const [showExtraForm, setShowExtraForm] = useState(null);
+
+  const date = new Date(selectedDay);
+  const dayName = DAYNAMES[date.getDay()];
+  const items = data.schedule[selectedDay] || [];
+  const oneTimeJobsToday = (data.oneTimeJobs || []).filter(j => j.date === selectedDay && !j.done);
+
+  const clientsWithData = items.map(item => ({
+    ...item,
+    client: data.clients.find(c => c.id === item.clientId)
+  })).filter(x => x.client);
+
+  const pendingVisits = clientsWithData.filter(x => !x.done);
+  const doneVisits = clientsWithData.filter(x => x.done);
+
+  const changeDay = delta => {
+    const d = new Date(selectedDay);
+    d.setDate(d.getDate() + delta);
+    while (!WORK_DAYS.includes(d.getDay())) {
+      d.setDate(d.getDate() + (delta > 0 ? 1 : -1));
+    }
+    setSelectedDay(iso(d));
+  };
+
+  const isToday = selectedDay === iso(new Date());
+
+  return (
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      {/* Header */}
+      <div style={{background:`linear-gradient(135deg, ${C.hdr} 0%, ${C.hdrL} 100%)`,color:"#fff",padding:"14px 16px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <div style={{fontSize:17,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>
+            <span>🌳</span>
+            <span>ביקורים להיום</span>
+          </div>
+          <div style={{fontSize:10,opacity:0.9,display:"flex",alignItems:"center",gap:4}}>
+            {syncStatus === "saving" && <><span style={{width:7,height:7,borderRadius:"50%",background:"#ffc857"}}></span>שומר</>}
+            {syncStatus === "saved" && <><span style={{width:7,height:7,borderRadius:"50%",background:"#b7e4c7"}}></span>מסונכרן</>}
+            {syncStatus === "error" && <><span style={{width:7,height:7,borderRadius:"50%",background:"#ff6b6b"}}></span>שגיאה</>}
+          </div>
+        </div>
+        {/* ניווט יום */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(255,255,255,0.15)",borderRadius:10,padding:"8px 12px"}}>
+          <button onClick={() => changeDay(-1)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",padding:0,lineHeight:1}}>→</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700}}>{isToday ? "היום · " : ""}{dayName}</div>
+            <div style={{fontSize:11,opacity:0.9}}>{fmtHeb(date)}</div>
+          </div>
+          <button onClick={() => changeDay(1)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",padding:0,lineHeight:1}}>←</button>
+        </div>
+      </div>
+
+      <div style={{padding:12,paddingBottom:80}}>
+        {/* סיכום מהיר */}
+        {clientsWithData.length > 0 && (
+          <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:12,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div>
+                <div style={{fontSize:22,fontWeight:700,color:C.grn}}>{pendingVisits.length}</div>
+                <div style={{fontSize:11,color:C.txtM}}>ממתינים</div>
+              </div>
+              <div style={{height:40,width:1,background:C.bdr}}></div>
+              <div>
+                <div style={{fontSize:22,fontWeight:700,color:C.hdrL}}>{doneVisits.length}</div>
+                <div style={{fontSize:11,color:C.txtM}}>בוצעו</div>
+              </div>
+              <div style={{height:40,width:1,background:C.bdr}}></div>
+              <div>
+                <div style={{fontSize:22,fontWeight:700,color:C.txt}}>{clientsWithData.length}</div>
+                <div style={{fontSize:11,color:C.txtM}}>סה"כ</div>
+              </div>
+            </div>
+            <div style={{height:6,background:C.bdrL,borderRadius:3,overflow:"hidden"}}>
+              <div style={{height:"100%",background:`linear-gradient(to left, ${C.hdrL}, ${C.grn})`,width:`${clientsWithData.length ? (doneVisits.length/clientsWithData.length)*100 : 0}%`,transition:"width 0.4s"}}></div>
+            </div>
+          </div>
+        )}
+
+        {/* אם אין לקוחות */}
+        {clientsWithData.length === 0 && oneTimeJobsToday.length === 0 && (
+          <div style={{background:C.card,borderRadius:14,border:`1px dashed ${C.bdr}`,padding:30,textAlign:"center"}}>
+            <div style={{fontSize:50,marginBottom:10}}>☀️</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.grn,marginBottom:4}}>אין ביקורים היום</div>
+            <div style={{fontSize:12,color:C.txtM}}>חופש מגיע 🌱</div>
+          </div>
+        )}
+
+        {/* עבודות חד-פעמיות להיום */}
+        {oneTimeJobsToday.length > 0 && (
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:C.prp,fontWeight:700,marginBottom:6,padding:"0 4px"}}>🔨 עבודות חד-פעמיות להיום</div>
+            {oneTimeJobsToday.map(j => {
+              const cc = CITY_COLORS[j.city] || CITY_COLORS["ירושלים"];
+              return (
+                <div key={j.id} style={{background:C.card,borderRadius:12,border:`2px solid ${C.prp}`,padding:12,marginBottom:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,background:C.prpB,color:C.prp,padding:"2px 8px",borderRadius:10,fontWeight:700}}>חד-פעמי</span>
+                    <span style={{fontSize:16,fontWeight:700,color:C.txt}}>{j.clientName}</span>
+                    <span style={{fontSize:10,background:cc.bg,color:cc.text,padding:"2px 8px",borderRadius:10,fontWeight:600}}>{j.city}</span>
+                  </div>
+                  {j.note && <div style={{fontSize:13,color:C.txt,background:C.prpB,padding:"8px 10px",borderRadius:6,marginTop:6}}>{j.note}</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* לקוחות ממתינים */}
+        {pendingVisits.length > 0 && (
+          <div style={{marginBottom:12}}>
+            {pendingVisits.map(item => (
+              <WorkerVisitCard
+                key={item.id}
+                item={item}
+                dayKey={selectedDay}
+                isExpanded={expandedVisit === item.id}
+                onExpand={() => setExpandedVisit(expandedVisit === item.id ? null : item.id)}
+                toggleVisitDone={toggleVisitDone}
+                updateNewNote={updateNewNote}
+                markLastNoteHandled={markLastNoteHandled}
+                addExtra={addExtra}
+                removeExtra={removeExtra}
+                showExtraForm={showExtraForm === item.id}
+                setShowExtraForm={v => setShowExtraForm(v ? item.id : null)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* בוצעו - מכווץ כברירת מחדל */}
+        {doneVisits.length > 0 && (
+          <DoneSection
+            doneVisits={doneVisits}
+            dayKey={selectedDay}
+            toggleVisitDone={toggleVisitDone}
+          />
+        )}
+
+        {/* פוטר */}
+        <div style={{textAlign:"center",fontSize:10,color:C.txtL,marginTop:20}}>
+          🌳 תצוגת עובדים · המנהל רואה הכל
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// כרטיס ביקור - לעובד
+function WorkerVisitCard({ item, dayKey, isExpanded, onExpand, toggleVisitDone, updateNewNote, markLastNoteHandled, addExtra, removeExtra, showExtraForm, setShowExtraForm }) {
+  const c = item.client;
+  const cc = CITY_COLORS[c.city];
+  const extrasTotal = (item.extras || []).reduce((s, e) => s + (e.amount || 0), 0);
+  const hasLastNote = item.lastVisitNote && !item.lastVisitNoteHandled;
+  const hasAnyImportant = c.permanentNote || hasLastNote || item.dayNote || (item.extras && item.extras.length > 0);
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`2px solid ${hasLastNote ? C.org : cc.border}`,padding:12,marginBottom:10,boxShadow:hasLastNote ? "0 2px 6px rgba(224,159,62,0.15)" : "none"}}>
+      {/* שורה ראשונה */}
+      <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:hasAnyImportant ? 10 : 0}}>
+        <button onClick={() => toggleVisitDone(dayKey, item.id)} style={{
+          width:48,height:48,borderRadius:"50%",
+          border:`3px solid ${C.bdr}`,
+          background:"#fff",
+          color:C.bdr,
+          cursor:"pointer",fontSize:24,fontWeight:700,
+          flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"
+        }}>✓</button>
+
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
+            <span style={{fontSize:18,fontWeight:700,color:C.txt}}>{c.name}</span>
+            <span style={{fontSize:10,background:cc.bg,color:cc.text,padding:"2px 8px",borderRadius:10,fontWeight:600}}>{c.city}</span>
+          </div>
+          <div style={{fontSize:12,color:C.txtM}}>
+            {c.area && <span>📍 {c.area}</span>}
+            {c.area && extrasTotal > 0 && <span> · </span>}
+            {extrasTotal > 0 && <span style={{color:C.prp,fontWeight:600}}>+₪{extrasTotal} תוספות</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* הערה מביקור קודם - הכי חשוב */}
+      {hasLastNote && (
+        <div style={{background:C.orgB,border:`2px solid ${C.org}`,borderRight:`4px solid ${C.org}`,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6,gap:8}}>
+            <div style={{fontSize:11,color:C.org,fontWeight:700}}>⚠️ מביקור קודם - לטפל!</div>
+            <button onClick={() => markLastNoteHandled(dayKey, item.id)} style={{background:C.org,color:"#fff",border:"none",borderRadius:6,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>✓ טופל</button>
+          </div>
+          <div style={{fontSize:14,color:C.txt,lineHeight:1.4}}>{item.lastVisitNote}</div>
+        </div>
+      )}
+
+      {/* הערה קבועה */}
+      {c.permanentNote && (
+        <div style={{background:C.bluB,border:`1px solid ${C.blu}`,borderRight:`3px solid ${C.blu}`,borderRadius:8,padding:"8px 12px",marginBottom:8}}>
+          <div style={{fontSize:10,color:C.blu,fontWeight:700,marginBottom:4}}>📌 הערה קבועה</div>
+          <div style={{fontSize:13,color:C.txt,lineHeight:1.4}}>{c.permanentNote}</div>
+        </div>
+      )}
+
+      {/* הערת יום */}
+      {item.dayNote && (
+        <div style={{background:C.grnP,border:`1px solid ${C.grn}`,borderRight:`3px solid ${C.grn}`,borderRadius:8,padding:"8px 12px",marginBottom:8}}>
+          <div style={{fontSize:10,color:C.grn,fontWeight:700,marginBottom:4}}>📝 הערת יום</div>
+          <div style={{fontSize:13,color:C.txt,lineHeight:1.4}}>{item.dayNote}</div>
+        </div>
+      )}
+
+      {/* תוספות */}
+      {item.extras && item.extras.length > 0 && (
+        <div style={{background:C.prpB,border:`1px solid ${C.prp}`,borderRight:`3px solid ${C.prp}`,borderRadius:8,padding:"8px 12px",marginBottom:8}}>
+          <div style={{fontSize:10,color:C.prp,fontWeight:700,marginBottom:4}}>➕ תוספות לביקור</div>
+          {item.extras.map(e => (
+            <div key={e.id} style={{fontSize:13,color:C.txt,padding:"2px 0"}}>• {e.desc} <span style={{color:C.prp,fontWeight:600}}>(₪{e.amount})</span></div>
+          ))}
+        </div>
+      )}
+
+      {/* הערה לביקור הבא - אם כבר נכתבה */}
+      {item.newNote && !isExpanded && (
+        <div style={{background:"#e7f5e9",border:`1px solid ${C.hdrL}`,borderRight:`3px solid ${C.hdrL}`,borderRadius:8,padding:"8px 12px",marginBottom:8}}>
+          <div style={{fontSize:10,color:C.hdrL,fontWeight:700,marginBottom:4}}>💬 נכתב לביקור הבא</div>
+          <div style={{fontSize:13,color:C.txt,lineHeight:1.4}}>{item.newNote}</div>
+        </div>
+      )}
+
+      {/* כפתורי פעולה גדולים - תמיד בולטים */}
+      {!isExpanded && (
+        <div style={{display:"flex",gap:6,marginTop:hasAnyImportant ? 6 : 4}}>
+          <button
+            onClick={onExpand}
+            style={{
+              flex:1,
+              background:item.newNote ? C.hdrL : C.card,
+              color:item.newNote ? "#fff" : C.hdr,
+              border:`2px solid ${C.hdrL}`,
+              borderRadius:10,
+              padding:"12px",
+              fontSize:14,
+              fontWeight:700,
+              cursor:"pointer",
+              display:"flex",
+              alignItems:"center",
+              justifyContent:"center",
+              gap:6
+            }}
+          >
+            <span style={{fontSize:18}}>💬</span>
+            <span>{item.newNote ? "ערוך הערה" : "הוסף הערה"}</span>
+          </button>
+          <button
+            onClick={() => { onExpand(); setShowExtraForm(true); }}
+            style={{
+              background:C.prpB,
+              color:C.prp,
+              border:`2px solid ${C.prp}`,
+              borderRadius:10,
+              padding:"12px 16px",
+              fontSize:14,
+              fontWeight:700,
+              cursor:"pointer",
+              whiteSpace:"nowrap"
+            }}
+          >
+            ➕ תוספת
+          </button>
+        </div>
+      )}
+
+      {/* תצוגה מורחבת */}
+      {isExpanded && (
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.bdr}`}}>
+          <WorkerNoteField
+            value={item.newNote || ""}
+            onSave={(val) => updateNewNote(dayKey, item.id, val)}
+            onCancel={onExpand}
+          />
+
+          {/* הוספת תוספת */}
+          {showExtraForm ? (
+            <ExtraForm
+              onSave={(desc, amount) => { addExtra(dayKey, item.id, desc, amount); setShowExtraForm(false); }}
+              onCancel={() => setShowExtraForm(false)}
+            />
+          ) : (
+            <button onClick={() => setShowExtraForm(true)} style={{width:"100%",marginTop:10,background:C.prpB,color:C.prp,border:`1px dashed ${C.prp}`,borderRadius:8,padding:12,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              ➕ הוסף תוספת / עבודה נוספת
+            </button>
+          )}
+
+          <button onClick={onExpand} style={{width:"100%",marginTop:8,background:"none",color:C.txtM,border:"none",padding:6,fontSize:11,cursor:"pointer"}}>סגור</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// שדה הערה גדול לעובד (יותר ידידותי)
+function WorkerNoteField({ value, onSave, onCancel }) {
+  const [text, setText] = useState(value);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => { setText(value); }, [value]);
+
+  const save = () => {
+    onSave(text);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{fontSize:12,color:C.hdrL,fontWeight:700,marginBottom:6}}>💬 הערה לביקור הבא</div>
+      <textarea
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="מה צריך לטפל בפעם הבאה? (למשל: להביא מזמרה, השקיה לא עובדת, לקוח ביקש...)"
+        rows={4}
+        style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`2px solid ${C.hdrL}`,fontSize:14,resize:"vertical",background:"#fff"}}
+      />
+      <button onClick={save} style={{width:"100%",marginTop:8,background:saved ? C.grn : C.hdrL,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:14,fontWeight:700,cursor:"pointer",transition:"background 0.2s"}}>
+        {saved ? "✓ נשמר!" : "💾 שמור הערה"}
+      </button>
+    </div>
+  );
+}
+
+// סקשן של בוצעו (מכווץ)
+function DoneSection({ doneVisits, dayKey, toggleVisitDone }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:12,marginTop:10}}>
+      <button onClick={() => setOpen(!open)} style={{width:"100%",background:"none",border:"none",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",padding:0}}>
+        <span style={{fontSize:14,fontWeight:700,color:C.hdrL}}>✓ בוצעו ({doneVisits.length})</span>
+        <span style={{fontSize:14,color:C.txtM}}>{open ? "▼" : "◀"}</span>
+      </button>
+      {open && (
+        <div style={{marginTop:10}}>
+          {doneVisits.map(item => {
+            const c = item.client;
+            const cc = CITY_COLORS[c.city];
+            return (
+              <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 4px",borderBottom:`1px solid ${C.bdrL}`,opacity:0.7}}>
+                <button onClick={() => toggleVisitDone(dayKey, item.id)} style={{
+                  width:32,height:32,borderRadius:"50%",
+                  border:`2px solid ${C.grn}`,background:C.grn,color:"#fff",
+                  cursor:"pointer",fontSize:16,fontWeight:700,flexShrink:0,
+                  display:"flex",alignItems:"center",justifyContent:"center"
+                }}>✓</button>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:600,color:C.txt,textDecoration:"line-through"}}>{c.name}</div>
+                  <div style={{fontSize:11,color:C.txtM}}>{c.city}{c.area ? ` · ${c.area}` : ""}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ONE TIME JOBS SECTION - עבודות חד-פעמיות
+// ═══════════════════════════════════════════════════════════════════
+function OneTimeJobsSection({ data, setModal, toggleOneTimeJob, deleteOneTimeJob }) {
+  const jobs = data.oneTimeJobs || [];
+  const openJobs = jobs.filter(j => !j.done);
+  const doneJobs = jobs.filter(j => j.done);
+  const [showDone, setShowDone] = useState(false);
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:14,marginTop:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.prp,display:"flex",alignItems:"center",gap:6}}>
+          🔨 עבודות חד-פעמיות
+          {openJobs.length > 0 && <span style={{background:C.prp,color:"#fff",padding:"2px 8px",borderRadius:10,fontSize:11}}>{openJobs.length}</span>}
+        </div>
+        <button onClick={() => setModal({type:"addOneTimeJob"})} style={{background:C.prp,color:"#fff",border:"none",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ עבודה חדשה</button>
+      </div>
+
+      {openJobs.length === 0 && doneJobs.length === 0 && (
+        <div style={{textAlign:"center",color:C.txtL,fontSize:12,padding:"10px 0"}}>אין עבודות חד-פעמיות — עבודה כמו ניקוי חצר, שתילת עץ, נסיעה מיוחדת</div>
+      )}
+
+      {openJobs.map(j => (
+        <OneTimeJobItem key={j.id} job={j} onToggle={() => toggleOneTimeJob(j.id)} onDelete={() => { if (confirm(`למחוק עבודה: ${j.clientName}?`)) deleteOneTimeJob(j.id); }} />
+      ))}
+
+      {doneJobs.length > 0 && (
+        <div style={{marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.bdr}`}}>
+          <button onClick={() => setShowDone(!showDone)} style={{background:"none",border:"none",color:C.txtM,fontSize:11,cursor:"pointer",padding:0,marginBottom:6}}>
+            {showDone ? "▼" : "◀"} בוצעו ({doneJobs.length})
+          </button>
+          {showDone && doneJobs.map(j => (
+            <OneTimeJobItem key={j.id} job={j} onToggle={() => toggleOneTimeJob(j.id)} onDelete={() => { if (confirm(`למחוק עבודה: ${j.clientName}?`)) deleteOneTimeJob(j.id); }} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OneTimeJobItem({ job, onToggle, onDelete }) {
+  const cc = CITY_COLORS[job.city] || CITY_COLORS["ירושלים"];
+  return (
+    <div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 6px",borderBottom:`1px solid ${C.bdrL}`,opacity:job.done ? 0.5 : 1}}>
+      <button onClick={onToggle} style={{
+        width:28,height:28,borderRadius:"50%",
+        border:`2px solid ${job.done ? C.grn : C.bdr}`,
+        background:job.done ? C.grn : "#fff",
+        color:job.done ? "#fff" : C.bdr,
+        cursor:"pointer",fontSize:14,fontWeight:700,
+        flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"
+      }}>✓</button>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          <span style={{fontSize:13,fontWeight:700,color:C.txt,textDecoration:job.done ? "line-through" : "none"}}>{job.clientName}</span>
+          <span style={{fontSize:9,background:cc.bg,color:cc.text,padding:"1px 6px",borderRadius:8,fontWeight:600}}>{job.city}</span>
+          {job.date && <span style={{fontSize:10,color:C.txtM}}>📅 {fmtDM(job.date)}</span>}
+        </div>
+        <div style={{fontSize:11,color:C.txtM,marginTop:2}}>₪{job.price} · {job.note || "עבודה חד-פעמית"}</div>
+      </div>
+      <button onClick={onDelete} style={{background:"none",border:"none",color:C.red,fontSize:16,cursor:"pointer",padding:4,flexShrink:0}}>×</button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SMART SCHEDULE SECTION - מרכז תזמון חכם
+// ═══════════════════════════════════════════════════════════════════
+function SmartScheduleSection({ data, onSchedule, onOpenDay }) {
+  const [open, setOpen] = useState(false);
+  const [pickingFor, setPickingFor] = useState(null); // clientId
+
+  // חשב לקוחות שצריכים תזמון
+  // לקוח צריך תזמון אם:
+  // - הביקור האחרון שלו כבר בעבר (או אין ביקור כלל)
+  // - הזמן שעבר מאז הביקור האחרון מתאים לתדירות שלו
+  const pending = useMemo(() => {
+    const now = new Date();
+    const todayKey = iso(now);
+
+    // מצא לכל לקוח את הביקור האחרון (בעבר או בעתיד)
+    const lastVisits = {}; // clientId -> dateKey
+    Object.entries(data.schedule || {}).forEach(([dayKey, items]) => {
+      (items || []).forEach(item => {
+        const cur = lastVisits[item.clientId];
+        if (!cur || dayKey > cur) {
+          lastVisits[item.clientId] = dayKey;
+        }
+      });
+    });
+
+    return data.clients.map(c => {
+      const lastKey = lastVisits[c.id];
+      const freq = c.frequency || "monthly";
+
+      // מספר ימים בין ביקור לביקור לפי תדירות
+      const daysBetween = freq === "weekly" ? 7 :
+                          freq === "twice" ? 15 :
+                          freq === "three" ? 10 :
+                          freq === "four" ? 7 : 30;
+
+      let suggestedDate;
+      let reason;
+      let urgency = "normal"; // normal | due | overdue
+
+      if (!lastKey) {
+        // אין ביקור בכלל - ממתין לתזמון ראשון
+        suggestedDate = todayKey;
+        reason = "לקוח חדש - אין ביקור עדיין";
+        urgency = "overdue";
+      } else {
+        const lastDate = new Date(lastKey);
+        const nextDate = new Date(lastDate);
+        nextDate.setDate(nextDate.getDate() + daysBetween);
+        suggestedDate = iso(nextDate);
+
+        const daysFromLast = Math.round((now - lastDate) / (1000 * 60 * 60 * 24));
+        const daysUntilNext = Math.round((nextDate - now) / (1000 * 60 * 60 * 24));
+
+        if (lastKey > todayKey) {
+          // יש ביקור עתידי - אין צורך לתזמן עכשיו
+          reason = "יש ביקור מתוכנן בעתיד";
+          return null; // לא כולל ברשימה
+        } else if (daysFromLast >= daysBetween) {
+          // הגיע/עבר זמן הביקור
+          reason = `חלפו ${daysFromLast} ימים מהביקור האחרון`;
+          urgency = daysFromLast > daysBetween + 7 ? "overdue" : "due";
+        } else {
+          // עדיין לא הגיע הזמן
+          return null;
+        }
+      }
+
+      return {
+        client: c,
+        lastKey,
+        suggestedDate,
+        reason,
+        urgency,
+        daysBetween
+      };
+    }).filter(Boolean).sort((a, b) => {
+      // קודם overdue, אח"כ due
+      const order = { overdue: 0, due: 1, normal: 2 };
+      return order[a.urgency] - order[b.urgency];
+    });
+  }, [data]);
+
+  if (pending.length === 0) {
+    return null; // לא להציג אם אין מה לתזמן
+  }
+
+  const overdueCount = pending.filter(p => p.urgency === "overdue").length;
+  const dueCount = pending.filter(p => p.urgency === "due").length;
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`2px solid ${overdueCount > 0 ? C.red : C.hdrL}`,padding:14,marginBottom:12}}>
+      <div onClick={() => setOpen(!open)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:16,fontWeight:700,color:C.hdr}}>🎯 מוכנים לתזמון</span>
+          <span style={{background:overdueCount > 0 ? C.red : C.hdrL,color:"#fff",padding:"2px 10px",borderRadius:12,fontSize:12,fontWeight:700}}>
+            {pending.length}
+          </span>
+          {overdueCount > 0 && (
+            <span style={{background:C.redB,color:C.red,padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,border:`1px solid ${C.red}`}}>
+              ⚠️ {overdueCount} בפיגור
+            </span>
+          )}
+        </div>
+        <span style={{fontSize:16,color:C.txtM}}>{open ? "▼" : "◀"}</span>
+      </div>
+
+      {!open && pending.length > 0 && (
+        <div style={{fontSize:12,color:C.txtM,marginTop:6}}>
+          {overdueCount > 0 && <span style={{color:C.red,fontWeight:600}}>⚠️ {overdueCount} בפיגור · </span>}
+          {dueCount > 0 && <span style={{color:C.org,fontWeight:600}}>📅 {dueCount} להיום · </span>}
+          לחץ לצפייה
+        </div>
+      )}
+
+      {open && (
+        <div style={{marginTop:12}}>
+          {pending.map(p => (
+            <SchedulePendingItem
+              key={p.client.id}
+              pending={p}
+              isPicking={pickingFor === p.client.id}
+              onPick={() => setPickingFor(pickingFor === p.client.id ? null : p.client.id)}
+              onSchedule={(dayKey) => {
+                onSchedule(p.client.id, dayKey);
+                setPickingFor(null);
+              }}
+              onOpenDay={onOpenDay}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// כרטיס לקוח ממתין לתזמון
+function SchedulePendingItem({ pending, isPicking, onPick, onSchedule, onOpenDay }) {
+  const { client: c, suggestedDate, reason, urgency, daysBetween } = pending;
+  const cc = CITY_COLORS[c.city];
+
+  // חשב 3 הצעות תאריכים - עבור בית שמש מעדיף ראשון/חמישי
+  const suggestions = useMemo(() => {
+    const isBeitShemesh = c.city === "בית שמש";
+    const base = new Date(suggestedDate);
+    const opts = [];
+
+    // הצעה 1: התאריך המוצע (אם הוא יום עבודה)
+    const firstOpt = new Date(base);
+    // דחה משישי/שבת ליום עבודה
+    while (!WORK_DAYS.includes(firstOpt.getDay())) firstOpt.setDate(firstOpt.getDate() + 1);
+
+    // בשביל בית שמש: נסה להעביר לראשון/חמישי הקרוב אם לא
+    if (isBeitShemesh) {
+      const dow = firstOpt.getDay();
+      if (dow !== 0 && dow !== 4) {
+        const distToSun = dow > 4 ? 7 - dow : -dow;
+        const distToThu = 4 - dow;
+        const bestDist = Math.abs(distToSun) <= Math.abs(distToThu) ? distToSun : distToThu;
+        if (Math.abs(bestDist) <= 3) firstOpt.setDate(firstOpt.getDate() + bestDist);
+      }
+    }
+    opts.push({ date: iso(firstOpt), label: isBeitShemesh ? "מומלץ (א׳/ה׳)" : "מומלץ" });
+
+    // הצעה 2: +3 ימים (לבית שמש - היום הבא של א/ה)
+    const d2 = new Date(opts[0].date);
+    if (isBeitShemesh) {
+      // קפוץ לראשון/חמישי הבא
+      d2.setDate(d2.getDate() + 1);
+      while (d2.getDay() !== 0 && d2.getDay() !== 4) d2.setDate(d2.getDate() + 1);
+      opts.push({ date: iso(d2), label: "הא׳/ה׳ הבא" });
+    } else {
+      let added = 0;
+      while (added < 3) { d2.setDate(d2.getDate() + 1); if (WORK_DAYS.includes(d2.getDay())) added++; }
+      opts.push({ date: iso(d2), label: "+3 ימים" });
+    }
+
+    // הצעה 3: +7 ימים (לבית שמש - עוד ראשון/חמישי)
+    const d3 = new Date(opts[1].date);
+    if (isBeitShemesh) {
+      d3.setDate(d3.getDate() + 1);
+      while (d3.getDay() !== 0 && d3.getDay() !== 4) d3.setDate(d3.getDate() + 1);
+      opts.push({ date: iso(d3), label: "עוד א׳/ה׳" });
+    } else {
+      let added = 0;
+      while (added < 7) { d3.setDate(d3.getDate() + 1); if (WORK_DAYS.includes(d3.getDay())) added++; }
+      opts.push({ date: iso(d3), label: "+שבוע" });
+    }
+
+    return opts;
+  }, [suggestedDate, c.city]);
+
+  const [customDate, setCustomDate] = useState("");
+  const [recurring, setRecurring] = useState(true); // ברירת מחדל: חוזר
+
+  const bgColor = urgency === "overdue" ? C.redB : urgency === "due" ? C.orgB : C.cardA;
+  const borderColor = urgency === "overdue" ? C.red : urgency === "due" ? C.org : C.bdr;
+
+  const doSchedule = (date) => onSchedule(date, recurring);
+
+  return (
+    <div style={{background:bgColor,border:`1px solid ${borderColor}`,borderRadius:10,padding:10,marginBottom:6}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
+            <span style={{fontSize:14,fontWeight:700,color:C.txt}}>{c.name}</span>
+            <span style={{fontSize:9,background:cc.bg,color:cc.text,padding:"1px 6px",borderRadius:8,fontWeight:600}}>{c.city}</span>
+            {urgency === "overdue" && <span style={{fontSize:9,background:C.red,color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>⚠️ בפיגור</span>}
+            {urgency === "due" && <span style={{fontSize:9,background:C.org,color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>📅 מוכן</span>}
+          </div>
+          <div style={{fontSize:10,color:C.txtM}}>{reason} · {freqLabel(c.frequency)}</div>
+        </div>
+        {!isPicking && (
+          <button onClick={onPick} style={{background:C.hdr,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+            שבץ ←
+          </button>
+        )}
+      </div>
+
+      {/* הצעות תאריכים */}
+      {isPicking && (
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${borderColor}`}}>
+          {/* טוגל חזרתי */}
+          <div onClick={() => setRecurring(!recurring)} style={{
+            display:"flex",
+            alignItems:"center",
+            gap:6,
+            padding:"6px 10px",
+            background:recurring ? C.grnP : "#fff",
+            border:`1.5px solid ${recurring ? C.grn : C.bdr}`,
+            borderRadius:8,
+            marginBottom:10,
+            cursor:"pointer"
+          }}>
+            <div style={{
+              width:18,height:18,borderRadius:4,
+              border:`2px solid ${recurring ? C.grn : C.bdr}`,
+              background:recurring ? C.grn : "#fff",
+              color:"#fff",fontSize:12,fontWeight:700,
+              display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0
+            }}>{recurring ? "✓" : ""}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:700,color:C.txt}}>🔁 שבץ גם 3 חודשים קדימה</div>
+            </div>
+          </div>
+
+          <div style={{fontSize:11,color:C.txtM,fontWeight:600,marginBottom:6}}>באיזה תאריך לשבץ?</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {suggestions.map((s, i) => {
+              const d = new Date(s.date);
+              return (
+                <button key={i} onClick={() => doSchedule(s.date)} style={{
+                  background:"#fff",
+                  color:C.txt,
+                  border:`1.5px solid ${i === 0 ? C.hdr : C.bdr}`,
+                  borderRadius:8,
+                  padding:"10px 12px",
+                  fontSize:13,
+                  fontWeight:600,
+                  cursor:"pointer",
+                  display:"flex",
+                  justifyContent:"space-between",
+                  alignItems:"center"
+                }}>
+                  <span style={{fontSize:10,color:i === 0 ? C.hdr : C.txtM,fontWeight:700,background:i === 0 ? C.grnP : C.cardA,padding:"2px 8px",borderRadius:8}}>{s.label}</span>
+                  <span>{DAYNAMES[d.getDay()]} · {fmtHeb(d)}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* תאריך מותאם */}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${borderColor}`}}>
+            <div style={{fontSize:11,color:C.txtM,fontWeight:600,marginBottom:6}}>או בחר תאריך אחר:</div>
+            <div style={{display:"flex",gap:6}}>
+              <input
+                type="date"
+                value={customDate}
+                onChange={e => setCustomDate(e.target.value)}
+                style={{flex:1,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff"}}
+              />
+              <button
+                onClick={() => { if (customDate) doSchedule(customDate); }}
+                disabled={!customDate}
+                style={{
+                  background:customDate ? C.hdr : C.cardA,
+                  color:customDate ? "#fff" : C.txtL,
+                  border:"none",
+                  borderRadius:8,
+                  padding:"8px 14px",
+                  fontSize:12,
+                  fontWeight:700,
+                  cursor:customDate ? "pointer" : "not-allowed"
+                }}>שבץ</button>
+            </div>
+          </div>
+
+          <button onClick={onPick} style={{width:"100%",marginTop:8,background:"none",border:"none",color:C.txtM,fontSize:11,cursor:"pointer",padding:6}}>ביטול</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REMINDERS SECTION - יומן תזכורות
+// ═══════════════════════════════════════════════════════════════════
+function RemindersSection({ reminders, settings, unscheduledCount, onOpenUnscheduled, onAdd, onToggle, onDelete, onEdit, onUpdateSetting }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [showDone, setShowDone] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [newText, setNewText] = useState("");
+  const [newDate, setNewDate] = useState("");
+  const [useDate, setUseDate] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [useEditDate, setUseEditDate] = useState(false);
+  const [confirmId, setConfirmId] = useState(null); // המזהה של הרגע שממתין לאישור
+
+  const order = settings.remindersOrder || "newest";
+
+  const openReminders = reminders.filter(r => !r.done);
+  const doneReminders = reminders.filter(r => r.done);
+
+  // מיון
+  const sortFn = (a, b) => {
+    if (order === "oldest") return (a.createdAt || "").localeCompare(b.createdAt || "");
+    return (b.createdAt || "").localeCompare(a.createdAt || "");
+  };
+  openReminders.sort(sortFn);
+  doneReminders.sort((a, b) => (b.doneAt || "").localeCompare(a.doneAt || ""));
+
+  // האם תזכורת כבר בפיגור?
+  const todayISO = iso(new Date());
+  const isOverdue = (r) => r.dueDate && r.dueDate < todayISO;
+  const isDueToday = (r) => r.dueDate === todayISO;
+  const overdueCount = openReminders.filter(isOverdue).length;
+
+  const saveNew = () => {
+    const t = newText.trim();
+    if (!t) return;
+    onAdd(t, useDate ? newDate : null);
+    setNewText("");
+    setNewDate("");
+    setUseDate(false);
+    setShowAdd(false);
+  };
+
+  const startEdit = (r) => {
+    setEditingId(r.id);
+    setEditText(r.text);
+    setEditDate(r.dueDate || "");
+    setUseEditDate(!!r.dueDate);
+  };
+
+  const saveEdit = () => {
+    const t = editText.trim();
+    if (!t) return;
+    onEdit(editingId, t, useEditDate ? editDate : null);
+    setEditingId(null);
+  };
+
+  const handleToggleClick = (r) => {
+    if (r.done) {
+      // לא צריך אישור לביטול סימון
+      onToggle(r.id);
+    } else {
+      // דורש אישור לסימון כבוצעה
+      setConfirmId(r.id);
+    }
+  };
+
+  const confirmDone = () => {
+    onToggle(confirmId);
+    setConfirmId(null);
+  };
+
+  const confirmReminder = reminders.find(r => r.id === confirmId);
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:14,marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:16,fontWeight:700,color:C.hdr}}>📋 יומן תזכורות</span>
+          {openReminders.length > 0 && (
+            <span style={{background:overdueCount > 0 ? C.red : C.hdrL,color:"#fff",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>
+              {openReminders.length}
+            </span>
+          )}
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          <button onClick={() => setShowSettings(!showSettings)} style={{background:"none",border:"none",color:C.txtM,fontSize:16,cursor:"pointer",padding:4}} title="הגדרות">⚙️</button>
+          <button onClick={() => setShowAdd(true)} style={{background:C.hdr,color:"#fff",border:"none",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ חדשה</button>
+        </div>
+      </div>
+
+      {/* הגדרות */}
+      {showSettings && (
+        <div style={{background:C.cardA,border:`1px solid ${C.bdr}`,borderRadius:10,padding:10,marginBottom:10}}>
+          <div style={{fontSize:11,color:C.txtM,fontWeight:600,marginBottom:6}}>סידור תזכורות:</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={() => onUpdateSetting("remindersOrder", "newest")} style={{flex:1,padding:"8px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:order === "newest" ? C.hdr : "#fff",color:order === "newest" ? "#fff" : C.txt}}>חדש בראש</button>
+            <button onClick={() => onUpdateSetting("remindersOrder", "oldest")} style={{flex:1,padding:"8px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:order === "oldest" ? C.hdr : "#fff",color:order === "oldest" ? "#fff" : C.txt}}>ישן בראש</button>
+          </div>
+        </div>
+      )}
+
+      {/* התראת לא שובצו - קטנה יותר, בתוך התזכורות */}
+      {unscheduledCount > 0 && (
+        <div onClick={onOpenUnscheduled} style={{background:C.orgB,borderRadius:10,border:`1px solid ${C.org}`,padding:"8px 12px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:14,color:C.org}}>←</span>
+          <div style={{fontSize:12,fontWeight:600,color:"#9a6b1f"}}>📌 {unscheduledCount} לקוחות לא שובצו החודש</div>
+        </div>
+      )}
+
+      {/* טופס הוספה */}
+      {showAdd && (
+        <div style={{background:C.grnP,border:`2px solid ${C.hdr}`,borderRadius:10,padding:12,marginBottom:10}}>
+          <textarea
+            value={newText}
+            onChange={e => setNewText(e.target.value)}
+            placeholder="לדוגמה: לקנות שתילים, להתקשר ליעל, לקבוע פגישה עם ספק..."
+            rows={2}
+            autoFocus
+            style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:14,resize:"vertical",background:"#fff",marginBottom:8}}
+          />
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.txtM,cursor:"pointer"}}>
+              <input type="checkbox" checked={useDate} onChange={e => setUseDate(e.target.checked)} style={{cursor:"pointer"}} />
+              <span>עם תאריך יעד</span>
+            </label>
+            {useDate && (
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:12,background:"#fff"}} />
+            )}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={saveNew} style={{flex:1,background:C.hdr,color:"#fff",border:"none",borderRadius:8,padding:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>שמור תזכורת</button>
+            <button onClick={() => { setShowAdd(false); setNewText(""); setNewDate(""); setUseDate(false); }} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:8,padding:10,fontSize:13,cursor:"pointer"}}>ביטול</button>
+          </div>
+        </div>
+      )}
+
+      {/* תזכורות פתוחות */}
+      {openReminders.length === 0 && !showAdd && (
+        <div style={{textAlign:"center",color:C.txtL,fontSize:12,padding:"12px 0"}}>
+          ✨ אין תזכורות פתוחות
+        </div>
+      )}
+
+      {openReminders.map(r => {
+        const overdue = isOverdue(r);
+        const dueToday = isDueToday(r);
+        const isEditing = editingId === r.id;
+
+        if (isEditing) {
+          return (
+            <div key={r.id} style={{background:C.grnP,border:`2px solid ${C.hdr}`,borderRadius:10,padding:10,marginBottom:8}}>
+              <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={2} autoFocus style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:14,resize:"vertical",background:"#fff",marginBottom:8}} />
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.txtM,cursor:"pointer"}}>
+                  <input type="checkbox" checked={useEditDate} onChange={e => setUseEditDate(e.target.checked)} style={{cursor:"pointer"}} />
+                  <span>תאריך יעד</span>
+                </label>
+                {useEditDate && <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={{padding:"6px 8px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:12,background:"#fff"}} />}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={saveEdit} style={{flex:1,background:C.hdr,color:"#fff",border:"none",borderRadius:8,padding:8,fontSize:12,fontWeight:700,cursor:"pointer"}}>שמור</button>
+                <button onClick={() => setEditingId(null)} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:8,padding:8,fontSize:12,cursor:"pointer"}}>ביטול</button>
+                <button onClick={() => { if (confirm("למחוק את התזכורת?")) { onDelete(r.id); setEditingId(null); } }} style={{background:C.redB,color:C.red,border:`1px solid ${C.red}`,borderRadius:8,padding:"8px 12px",fontSize:12,cursor:"pointer"}}>🗑️</button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div key={r.id} style={{
+            display:"flex",alignItems:"flex-start",gap:10,padding:"10px 8px",
+            borderBottom:`1px solid ${C.bdrL}`,
+            background:overdue ? C.redB : dueToday ? C.orgB : "transparent",
+            borderRadius:overdue || dueToday ? 8 : 0,
+            marginBottom:overdue || dueToday ? 4 : 0
+          }}>
+            <button
+              onClick={() => handleToggleClick(r)}
+              style={{
+                width:28,height:28,borderRadius:"50%",
+                border:`2px solid ${C.bdr}`,background:"#fff",color:C.bdr,
+                cursor:"pointer",fontSize:14,fontWeight:700,flexShrink:0,
+                display:"flex",alignItems:"center",justifyContent:"center",marginTop:2
+              }}
+            >✓</button>
+            <div onClick={() => startEdit(r)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+              <div style={{fontSize:14,color:C.txt,lineHeight:1.4,whiteSpace:"pre-wrap"}}>{r.text}</div>
+              {r.dueDate && (
+                <div style={{fontSize:10,marginTop:3,fontWeight:600,color:overdue ? C.red : dueToday ? C.org : C.txtM}}>
+                  {overdue ? "⚠️ באיחור: " : dueToday ? "📅 להיום: " : "📅 ליעד: "}
+                  {fmtDM(new Date(r.dueDate))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* תזכורות שבוצעו */}
+      {doneReminders.length > 0 && (
+        <div style={{marginTop:10,paddingTop:8,borderTop:`1px dashed ${C.bdr}`}}>
+          <button onClick={() => setShowDone(!showDone)} style={{background:"none",border:"none",color:C.txtM,fontSize:11,cursor:"pointer",padding:0,fontWeight:600}}>
+            {showDone ? "▼" : "◀"} בוצעו ({doneReminders.length})
+          </button>
+          {showDone && doneReminders.map(r => (
+            <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 6px",opacity:0.5}}>
+              <button onClick={() => onToggle(r.id)} style={{width:24,height:24,borderRadius:"50%",border:`2px solid ${C.grn}`,background:C.grn,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</button>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,color:C.txt,textDecoration:"line-through"}}>{r.text}</div>
+                {r.doneAt && <div style={{fontSize:9,color:C.txtL,marginTop:2}}>בוצע: {fmtDM(new Date(r.doneAt))}</div>}
+              </div>
+              <button onClick={() => { if (confirm("למחוק את התזכורת?")) onDelete(r.id); }} style={{background:"none",border:"none",color:C.red,fontSize:14,cursor:"pointer",padding:2}}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* חלון אישור סימון בוצע */}
+      {confirmId && confirmReminder && (
+        <div onClick={() => setConfirmId(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:16}}>
+          <div onClick={e => e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:20,maxWidth:380,width:"100%",boxShadow:"0 10px 30px rgba(0,0,0,0.2)"}}>
+            <div style={{textAlign:"center",marginBottom:14}}>
+              <div style={{fontSize:40,marginBottom:8}}>✓</div>
+              <div style={{fontSize:17,fontWeight:700,color:C.txt,marginBottom:8}}>לסמן כבוצעה?</div>
+              <div style={{fontSize:13,color:C.txtM,background:C.cardA,padding:"8px 12px",borderRadius:8,lineHeight:1.4,whiteSpace:"pre-wrap"}}>{confirmReminder.text}</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={confirmDone} style={{flex:1,background:C.hdr,color:"#fff",border:"none",borderRadius:10,padding:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>✓ כן, בוצעה</button>
+              <button onClick={() => setConfirmId(null)} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:10,padding:12,fontSize:14,cursor:"pointer"}}>לא</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MONTHLY CALENDAR
+// ═══════════════════════════════════════════════════════════════════
+function MonthlyCalendar({ monthView, setMonthView, data, onDayClick }) {
+  const now = monthView;
+  const mm = now.getMonth(), yy = now.getFullYear();
+  const firstDay = new Date(yy, mm, 1);
+  const daysInMonth = new Date(yy, mm + 1, 0).getDate();
+  const firstDow = firstDay.getDay();
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(yy, mm, d));
+  const todayISO = iso(new Date());
+
+  const changeMonth = delta => {
+    const n = new Date(monthView);
+    n.setMonth(n.getMonth() + delta);
+    setMonthView(n);
+  };
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <button onClick={() => changeMonth(-1)} style={{background:C.cardA,border:`1px solid ${C.bdr}`,width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,color:C.grn}}>→</button>
+        <div style={{fontSize:16,fontWeight:700,color:C.grn}}>{MONTHS[mm]} {yy}</div>
+        <button onClick={() => changeMonth(1)} style={{background:C.cardA,border:`1px solid ${C.bdr}`,width:32,height:32,borderRadius:"50%",cursor:"pointer",fontSize:16,color:C.grn}}>←</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3,marginBottom:4}}>
+        {DAYNAMES.map((d, i) => (
+          <div key={i} style={{textAlign:"center",fontSize:10,fontWeight:700,color:WORK_DAYS.includes(i) ? C.txtM : C.txtL,padding:4}}>{d.slice(0, 3)}</div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3}}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} style={{minHeight:62}}></div>;
+          const dy = iso(d);
+          const dayOfWeek = d.getDay();
+          const isWorkDay = WORK_DAYS.includes(dayOfWeek);
+          const items = data.schedule[dy] || [];
+          const isToday = dy === todayISO;
+          const doneCount = items.filter(x => x.done).length;
+
+          // מיון לפי עיר
+          const jCount = items.filter(x => {
+            const c = data.clients.find(cl => cl.id === x.clientId);
+            return c && c.city === "ירושלים";
+          }).length;
+          const bCount = items.filter(x => {
+            const c = data.clients.find(cl => cl.id === x.clientId);
+            return c && c.city === "בית שמש";
+          }).length;
+
+          return (
+            <div key={i}
+                 onClick={() => isWorkDay && onDayClick(dy)}
+                 style={{
+                   minHeight:62,
+                   padding:4,
+                   borderRadius:8,
+                   border:`1px solid ${isToday ? C.grn : C.bdr}`,
+                   background:!isWorkDay ? C.cardA : isToday ? C.grnP : items.length > 0 ? C.card : "#fff",
+                   cursor:isWorkDay ? "pointer" : "default",
+                   opacity:isWorkDay ? 1 : 0.4,
+                   display:"flex",
+                   flexDirection:"column",
+                   gap:2
+                 }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:11,fontWeight:isToday ? 700 : 500,color:isToday ? C.grn : C.txt}}>
+                  {d.getDate()}
+                </span>
+                {items.length > 0 && (
+                  <span style={{fontSize:9,fontWeight:600,color:doneCount === items.length ? C.grn : C.txtM}}>
+                    {doneCount}/{items.length}
+                  </span>
+                )}
+              </div>
+              {/* תצוגה של 2 לקוחות ראשונים עם צבע עיר */}
+              <div style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
+                {items.slice(0, 2).map((item, j) => {
+                  const c = data.clients.find(cl => cl.id === item.clientId);
+                  if (!c) return null;
+                  const cc = CITY_COLORS[c.city];
+                  return (
+                    <div key={j} style={{
+                      fontSize:8,
+                      padding:"1px 4px",
+                      borderRadius:3,
+                      background:cc.bg,
+                      color:cc.text,
+                      fontWeight:500,
+                      whiteSpace:"nowrap",
+                      overflow:"hidden",
+                      textOverflow:"ellipsis",
+                      textDecoration:item.done ? "line-through" : "none",
+                      opacity:item.done ? 0.5 : 1
+                    }}>
+                      {c.name}
+                    </div>
+                  );
+                })}
+                {items.length > 2 && (
+                  <div style={{fontSize:8,color:C.txtM,textAlign:"center"}}>+{items.length - 2}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DAY VIEW - תצוגה של יום אחד
+// ═══════════════════════════════════════════════════════════════════
+function DayView({ selectedDay, setSelectedDay, data, toggleVisitDone, addClientToDay, removeClientFromDay, updateDayNote, updateNewNote, markLastNoteHandled, addExtra, removeExtra, updatePermanentNote, addProject, toggleProjectDone, deleteProject, updateProject, addProjectExpense, removeProjectExpense }) {
+  const date = new Date(selectedDay);
+  const dayName = DAYNAMES[date.getDay()];
+  const items = data.schedule[selectedDay] || [];
+  const [addMode, setAddMode] = useState(false);
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [expandedVisit, setExpandedVisit] = useState(null); // visitId
+  const [showExtraForm, setShowExtraForm] = useState(null); // visitId
+  const [expandedProject, setExpandedProject] = useState(null); // projectId
+
+  // פרויקטים של היום הזה - כוללים גם תאריך יחיד וגם טווח שמכיל את היום
+  const dayProjects = (data.projects || []).filter(p => {
+    if (p.isRange) {
+      return p.startDate <= selectedDay && selectedDay <= (p.endDate || p.startDate);
+    }
+    return p.startDate === selectedDay;
+  });
+
+  const clientsWithData = items.map(item => ({
+    ...item,
+    client: data.clients.find(c => c.id === item.clientId)
+  })).filter(x => x.client);
+
+  const totalRevenue = clientsWithData.reduce((s, x) => {
+    const extras = (x.extras || []).reduce((e, ex) => e + (ex.amount || 0), 0);
+    return s + x.client.price + extras;
+  }, 0);
+  const doneCount = clientsWithData.filter(x => x.done).length;
+
+  const existingIds = new Set(items.map(x => x.clientId));
+  const availableClients = data.clients.filter(c => !existingIds.has(c.id));
+
+  const changeDay = delta => {
+    const d = new Date(selectedDay);
+    d.setDate(d.getDate() + delta);
+    while (!WORK_DAYS.includes(d.getDay())) {
+      d.setDate(d.getDate() + (delta > 0 ? 1 : -1));
+    }
+    setSelectedDay(iso(d));
+  };
+
+  return (
+    <div style={{padding:12,paddingBottom:80}}>
+      {/* ניווט יומי */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:"10px 12px",marginBottom:12}}>
+        <button onClick={() => changeDay(-1)} style={{background:"none",border:"none",fontSize:22,color:C.grn,cursor:"pointer"}}>→</button>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:700,color:C.grn}}>{dayName} · {fmtHeb(date)}</div>
+          {clientsWithData.length > 0 && (
+            <div style={{fontSize:11,color:C.txtM,marginTop:2}}>
+              {doneCount}/{clientsWithData.length} בוצעו · ₪{totalRevenue.toLocaleString()}
+            </div>
+          )}
+        </div>
+        <button onClick={() => changeDay(1)} style={{background:"none",border:"none",fontSize:22,color:C.grn,cursor:"pointer"}}>←</button>
+      </div>
+
+      {/* רשימת לקוחות היום */}
+      {clientsWithData.length === 0 && dayProjects.length === 0 ? (
+        <div style={{background:C.card,borderRadius:14,border:`1px dashed ${C.bdr}`,padding:24,textAlign:"center",marginBottom:12}}>
+          <div style={{fontSize:40,marginBottom:8}}>🌱</div>
+          <div style={{fontSize:14,color:C.txtM,marginBottom:0}}>אין לקוחות או פרויקטים משובצים ביום זה</div>
+        </div>
+      ) : clientsWithData.length === 0 ? null : (
+        <div style={{marginBottom:12}}>
+          {clientsWithData.map(item => {
+            const c = item.client;
+            const cc = CITY_COLORS[c.city];
+            const isExpanded = expandedVisit === item.id;
+            const extrasTotal = (item.extras || []).reduce((s, e) => s + (e.amount || 0), 0);
+            const hasLastNote = item.lastVisitNote && !item.lastVisitNoteHandled;
+
+            return (
+              <div key={item.id} style={{background:C.card,borderRadius:12,border:`1px solid ${item.done ? C.grnL : hasLastNote ? C.org : cc.border}`,padding:12,marginBottom:8,opacity:item.done ? 0.7 : 1,transition:"opacity 0.2s"}}>
+                {/* שורה ראשונה: כפתור בוצע + שם + פרטים + מחיקה */}
+                <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                  <button onClick={() => toggleVisitDone(selectedDay, item.id)} style={{
+                    width:40,height:40,borderRadius:"50%",
+                    border:`2px solid ${item.done ? C.grn : C.bdr}`,
+                    background:item.done ? C.grn : "#fff",
+                    color:item.done ? "#fff" : C.bdr,
+                    cursor:"pointer",fontSize:20,fontWeight:700,
+                    flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"
+                  }}>✓</button>
+
+                  <div onClick={() => setExpandedVisit(isExpanded ? null : item.id)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                      <span style={{fontSize:16,fontWeight:700,color:C.txt,textDecoration:item.done ? "line-through" : "none"}}>{c.name}</span>
+                      <span style={{fontSize:10,background:cc.bg,color:cc.text,padding:"2px 8px",borderRadius:10,fontWeight:600}}>{c.city}</span>
+                      {c.area && <span style={{fontSize:10,color:C.txtM}}>· {c.area}</span>}
+                      {hasLastNote && <span style={{fontSize:10,background:C.orgB,color:C.org,padding:"2px 6px",borderRadius:8,fontWeight:700}}>⚠️ הערה מביקור קודם</span>}
+                    </div>
+                    <div style={{fontSize:12,color:C.txtM}}>
+                      ₪{c.price}{extrasTotal > 0 && <span style={{color:C.prp,fontWeight:600}}> +₪{extrasTotal} תוספות</span>} · {freqLabel(c.frequency)}
+                    </div>
+                  </div>
+
+                  <button onClick={() => { if (confirm(`להסיר את ${c.name} מהיום?`)) removeClientFromDay(selectedDay, item.id); }} style={{background:"none",border:"none",color:C.red,fontSize:20,cursor:"pointer",padding:4,flexShrink:0}}>×</button>
+                </div>
+
+                {/* 🔔 כפתור הערה בולט - תמיד מוצג */}
+                <div style={{display:"flex",gap:6,marginTop:10}}>
+                  <button
+                    onClick={() => setExpandedVisit(isExpanded ? null : item.id)}
+                    style={{
+                      flex:1,
+                      background:(c.permanentNote || item.dayNote || item.newNote) ? C.hdrL : C.card,
+                      color:(c.permanentNote || item.dayNote || item.newNote) ? "#fff" : C.hdr,
+                      border:`2px solid ${C.hdrL}`,
+                      borderRadius:10,
+                      padding:"10px 12px",
+                      fontSize:13,
+                      fontWeight:700,
+                      cursor:"pointer",
+                      display:"flex",
+                      alignItems:"center",
+                      justifyContent:"center",
+                      gap:6
+                    }}
+                  >
+                    <span style={{fontSize:16}}>✏️</span>
+                    <span>{(c.permanentNote || item.dayNote || item.newNote) ? "ערוך הערות" : "הוסף הערה"}</span>
+                  </button>
+                  <button
+                    onClick={() => { setExpandedVisit(item.id); setShowExtraForm(item.id); }}
+                    style={{
+                      background:C.prpB,
+                      color:C.prp,
+                      border:`2px solid ${C.prp}`,
+                      borderRadius:10,
+                      padding:"10px 14px",
+                      fontSize:13,
+                      fontWeight:700,
+                      cursor:"pointer",
+                      whiteSpace:"nowrap"
+                    }}
+                    title="הוסף תוספת / עבודה נוספת"
+                  >
+                    ➕ תוספת
+                  </button>
+                </div>
+
+                {/* הערות - תמיד מוצגות */}
+                {c.permanentNote && (
+                  <div style={{marginTop:8,background:C.bluB,border:`1px solid ${C.blu}`,borderRight:`3px solid ${C.blu}`,borderRadius:6,padding:"6px 10px"}}>
+                    <div style={{fontSize:10,color:C.blu,fontWeight:700,marginBottom:2}}>📌 הערה קבועה</div>
+                    <div style={{fontSize:13,color:C.txt}}>{c.permanentNote}</div>
+                  </div>
+                )}
+
+                {hasLastNote && (
+                  <div style={{marginTop:8,background:C.orgB,border:`1px solid ${C.org}`,borderRight:`3px solid ${C.org}`,borderRadius:6,padding:"8px 10px"}}>
+                    <div style={{fontSize:10,color:C.org,fontWeight:700,marginBottom:2,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>⚠️ מביקור קודם - דורש טיפול</span>
+                      <button onClick={() => markLastNoteHandled(selectedDay, item.id)} style={{background:C.org,color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>✓ טופל</button>
+                    </div>
+                    <div style={{fontSize:13,color:C.txt,marginTop:4}}>{item.lastVisitNote}</div>
+                  </div>
+                )}
+
+                {item.dayNote && (
+                  <div style={{marginTop:8,background:C.grnP,border:`1px solid ${C.grn}`,borderRight:`3px solid ${C.grn}`,borderRadius:6,padding:"6px 10px"}}>
+                    <div style={{fontSize:10,color:C.grn,fontWeight:700,marginBottom:2}}>📝 הערת יום</div>
+                    <div style={{fontSize:13,color:C.txt}}>{item.dayNote}</div>
+                  </div>
+                )}
+
+                {item.extras && item.extras.length > 0 && (
+                  <div style={{marginTop:8,background:C.prpB,border:`1px solid ${C.prp}`,borderRight:`3px solid ${C.prp}`,borderRadius:6,padding:"6px 10px"}}>
+                    <div style={{fontSize:10,color:C.prp,fontWeight:700,marginBottom:4}}>➕ תוספות</div>
+                    {item.extras.map(e => (
+                      <div key={e.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12,padding:"2px 0"}}>
+                        <span>{e.desc}</span>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <span style={{fontWeight:600,color:C.prp}}>₪{e.amount}</span>
+                          <button onClick={() => removeExtra(selectedDay, item.id, e.id)} style={{background:"none",border:"none",color:C.red,fontSize:14,cursor:"pointer",padding:0}}>×</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {item.newNote && (
+                  <div style={{marginTop:8,background:"#e7f5e9",border:`1px solid ${C.hdrL}`,borderRight:`3px solid ${C.hdrL}`,borderRadius:6,padding:"6px 10px"}}>
+                    <div style={{fontSize:10,color:C.hdrL,fontWeight:700,marginBottom:2}}>💬 הערה שתעבור לביקור הבא</div>
+                    <div style={{fontSize:13,color:C.txt}}>{item.newNote}</div>
+                  </div>
+                )}
+
+                {/* תצוגה מורחבת - עריכה */}
+                {isExpanded && (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.bdr}`}}>
+                    <EditableNoteField
+                      label="📌 הערה קבועה (תמיד תופיע)"
+                      value={c.permanentNote || ""}
+                      placeholder="לדוגמה: מפתח תחת העציץ, הכלב נושך..."
+                      color={C.blu}
+                      bgColor={C.bluB}
+                      onSave={(val) => updatePermanentNote(c.id, val)}
+                    />
+                    <EditableNoteField
+                      label="📝 הערת יום (רק ליום זה)"
+                      value={item.dayNote || ""}
+                      placeholder="הערה ספציפית לביקור הזה..."
+                      color={C.grn}
+                      bgColor={C.grnP}
+                      onSave={(val) => updateDayNote(selectedDay, item.id, val)}
+                    />
+                    <EditableNoteField
+                      label="💬 הערה לביקור הבא (תעבור הלאה)"
+                      value={item.newNote || ""}
+                      placeholder="מה שיצטרכו לטפל בו פעם הבאה..."
+                      color={C.hdrL}
+                      bgColor="#e7f5e9"
+                      onSave={(val) => updateNewNote(selectedDay, item.id, val)}
+                    />
+
+                    {/* הוספת תוספת */}
+                    {showExtraForm === item.id ? (
+                      <ExtraForm
+                        onSave={(desc, amount) => { addExtra(selectedDay, item.id, desc, amount); setShowExtraForm(null); }}
+                        onCancel={() => setShowExtraForm(null)}
+                      />
+                    ) : (
+                      <button onClick={() => setShowExtraForm(item.id)} style={{width:"100%",marginTop:8,background:C.prpB,color:C.prp,border:`1px dashed ${C.prp}`,borderRadius:8,padding:10,fontSize:12,fontWeight:600,cursor:"pointer"}}>+ הוסף תוספת לביקור (עבודה נוספת + מחיר)</button>
+                    )}
+
+                    <button onClick={() => setExpandedVisit(null)} style={{width:"100%",marginTop:8,background:"none",color:C.txtM,border:"none",padding:8,fontSize:11,cursor:"pointer"}}>סגור</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* פרויקטים של היום */}
+      {dayProjects.length > 0 && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.prp,marginBottom:6,paddingRight:4}}>🚧 פרויקטים</div>
+          {dayProjects.map(p => (
+            <ProjectDayCard
+              key={p.id}
+              project={p}
+              client={p.linkedClientId ? data.clients.find(c => c.id === p.linkedClientId) : null}
+              isExpanded={expandedProject === p.id}
+              onToggleExpand={() => setExpandedProject(expandedProject === p.id ? null : p.id)}
+              onToggleDone={() => toggleProjectDone(p.id)}
+              onDelete={() => { if (confirm(`למחוק את הפרויקט "${p.title}"?`)) deleteProject(p.id); }}
+              onUpdate={(updates) => updateProject(p.id, updates)}
+              onAddExpense={(desc, amount, date) => addProjectExpense(p.id, desc, amount, date)}
+              onRemoveExpense={(expenseId) => removeProjectExpense(p.id, expenseId)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* כפתורי הוספה - לקוח + פרויקט */}
+      {!addMode && !showProjectForm && clientsWithData.length > 0 && (
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={() => setAddMode(true)} style={{flex:1,background:C.card,border:`2px dashed ${C.grn}`,borderRadius:12,padding:14,color:C.grn,fontSize:14,fontWeight:600,cursor:"pointer"}}>+ הוסף לקוח ליום זה</button>
+          <button onClick={() => setShowProjectForm(true)} style={{flex:1,background:C.card,border:`2px dashed ${C.prp}`,borderRadius:12,padding:14,color:C.prp,fontSize:14,fontWeight:600,cursor:"pointer"}}>+ הוסף פרויקט</button>
+        </div>
+      )}
+
+      {/* אם אין לקוחות - כפתור הפרויקט לצד כפתור הלקוח הראשון */}
+      {!addMode && !showProjectForm && clientsWithData.length === 0 && (
+        <div style={{display:"flex",gap:8,marginTop:12}}>
+          <button onClick={() => setAddMode(true)} style={{flex:1,background:C.grn,color:"#fff",border:"none",borderRadius:12,padding:12,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף לקוח</button>
+          <button onClick={() => setShowProjectForm(true)} style={{flex:1,background:C.prp,color:"#fff",border:"none",borderRadius:12,padding:12,fontSize:13,fontWeight:600,cursor:"pointer"}}>+ הוסף פרויקט</button>
+        </div>
+      )}
+
+      {/* מסך הוספה */}
+      {addMode && (
+        <AddClientToDay
+          availableClients={availableClients}
+          onAdd={(clientId, recurring) => { addClientToDay(selectedDay, clientId, "", recurring); }}
+          onClose={() => setAddMode(false)}
+        />
+      )}
+
+      {/* טופס פרויקט */}
+      {showProjectForm && (
+        <AddProjectForm
+          selectedDay={selectedDay}
+          data={data}
+          onSave={(project) => { addProject(project); setShowProjectForm(false); }}
+          onClose={() => setShowProjectForm(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// קומפוננטה של שדה הערה לעריכה
+function EditableNoteField({ label, value, placeholder, color, bgColor, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(value);
+
+  useEffect(() => { setText(value); }, [value]);
+
+  const save = () => { onSave(text); setEditing(false); };
+  const cancel = () => { setText(value); setEditing(false); };
+
+  return (
+    <div style={{marginTop:8}}>
+      <div style={{fontSize:10,color,fontWeight:700,marginBottom:4}}>{label}</div>
+      {editing ? (
+        <div>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder={placeholder}
+            rows={2}
+            style={{width:"100%",padding:8,borderRadius:6,border:`1px solid ${color}`,fontSize:13,resize:"vertical",background:"#fff"}}
+            autoFocus
+          />
+          <div style={{display:"flex",gap:6,marginTop:4}}>
+            <button onClick={save} style={{background:color,color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>שמור</button>
+            <button onClick={cancel} style={{background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:6,padding:"5px 12px",fontSize:11,cursor:"pointer"}}>ביטול</button>
+          </div>
+        </div>
+      ) : (
+        <div onClick={() => setEditing(true)} style={{background:value ? bgColor : C.cardA,border:`1px solid ${value ? color : C.bdr}`,borderRadius:6,padding:"6px 10px",fontSize:12,color:value ? C.txt : C.txtL,cursor:"pointer",minHeight:28}}>
+          {value || <span style={{fontStyle:"italic"}}>לחץ להוספה...</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// טופס הוספת תוספת
+function ExtraForm({ onSave, onCancel }) {
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const save = () => {
+    if (!desc.trim()) { alert("נא הכנס תיאור"); return; }
+    onSave(desc.trim(), Number(amount) || 0);
+    setDesc("");
+    setAmount("");
+  };
+
+  return (
+    <div style={{marginTop:8,background:C.prpB,border:`1px solid ${C.prp}`,borderRadius:8,padding:10}}>
+      <div style={{fontSize:11,color:C.prp,fontWeight:700,marginBottom:6}}>➕ תוספת לביקור</div>
+      <input
+        type="text"
+        value={desc}
+        onChange={e => setDesc(e.target.value)}
+        placeholder="תיאור העבודה (למשל: גיזום עץ, קניית שתילים...)"
+        style={{width:"100%",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:13,marginBottom:6,background:"#fff"}}
+        autoFocus
+      />
+      <input
+        type="number"
+        value={amount}
+        onChange={e => setAmount(e.target.value)}
+        placeholder="מחיר ₪"
+        style={{width:"100%",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:13,marginBottom:8,background:"#fff"}}
+      />
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={save} style={{flex:1,background:C.prp,color:"#fff",border:"none",borderRadius:6,padding:8,fontSize:12,fontWeight:600,cursor:"pointer"}}>הוסף</button>
+        <button onClick={onCancel} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:6,padding:8,fontSize:12,cursor:"pointer"}}>ביטול</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ADD PROJECT FORM - טופס הוספת פרויקט
+// ═══════════════════════════════════════════════════════════════════
+function AddProjectForm({ selectedDay, data, onSave, onClose }) {
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    startDate: selectedDay,
+    endDate: selectedDay,
+    isRange: false,
+    totalPrice: "",
+    clientName: "",
+    city: "ירושלים",
+    area: "",
+    linkedClientId: null
+  });
+  const [linkMode, setLinkMode] = useState("new"); // "new" | "existing"
+
+  const save = () => {
+    if (!form.title.trim()) { alert("נא הכנס כותרת לפרויקט"); return; }
+
+    const client = linkMode === "existing" && form.linkedClientId
+      ? data.clients.find(c => c.id === form.linkedClientId)
+      : null;
+
+    const project = {
+      title: form.title.trim(),
+      description: form.description.trim(),
+      startDate: form.startDate,
+      endDate: form.isRange ? (form.endDate || form.startDate) : form.startDate,
+      isRange: form.isRange,
+      totalPrice: Number(form.totalPrice) || 0,
+      linkedClientId: client ? client.id : null,
+      clientName: client ? client.name : form.clientName.trim(),
+      city: client ? client.city : form.city,
+      area: client ? client.area : form.area,
+    };
+
+    onSave(project);
+  };
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`2px solid ${C.prp}`,padding:14,marginTop:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:16,fontWeight:700,color:C.prp}}>🚧 פרויקט חדש</div>
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:C.txtM,cursor:"pointer"}}>×</button>
+      </div>
+
+      <div style={{background:C.prpB,border:`1px solid ${C.prp}`,borderRadius:8,padding:10,marginBottom:12,fontSize:11,color:C.prp,lineHeight:1.4}}>
+        💡 פרויקט = עבודה מיוחדת שאינה תחזוקה רגילה (שתילה חדשה, שיפוץ גינה, קטיף וכו׳). יכול להיות עצמאי או מקושר ללקוח קיים.
+      </div>
+
+      {/* בחירה: פרויקט עצמאי / מקושר ללקוח */}
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <button onClick={() => { setLinkMode("new"); setForm({...form, linkedClientId: null}); }} style={{flex:1,padding:10,borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:linkMode === "new" ? C.prp : C.cardA,color:linkMode === "new" ? "#fff" : C.txtM}}>פרויקט עצמאי</button>
+        <button onClick={() => setLinkMode("existing")} style={{flex:1,padding:10,borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,background:linkMode === "existing" ? C.prp : C.cardA,color:linkMode === "existing" ? "#fff" : C.txtM}}>מקושר ללקוח קיים</button>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {/* כותרת */}
+        <div>
+          <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>כותרת הפרויקט *</div>
+          <input type="text" value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="לדוגמה: שתילת עצי זית בחצר" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}} />
+        </div>
+
+        {/* לקוח - חדש או קיים */}
+        {linkMode === "existing" ? (
+          <div>
+            <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>בחר לקוח קיים *</div>
+            <select value={form.linkedClientId || ""} onChange={e => setForm({...form, linkedClientId: e.target.value})} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}}>
+              <option value="">-- בחר --</option>
+              {data.clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.city})</option>)}
+            </select>
+          </div>
+        ) : (
+          <>
+            <div>
+              <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>שם הלקוח</div>
+              <input type="text" value={form.clientName} onChange={e => setForm({...form, clientName: e.target.value})} placeholder="אופציונלי - אם זה עצמאי" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}} />
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:8}}>
+              <div>
+                <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>עיר</div>
+                <select value={form.city} onChange={e => setForm({...form, city: e.target.value})} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}}>
+                  <option value="ירושלים">ירושלים</option>
+                  <option value="בית שמש">בית שמש</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>אזור / שכונה</div>
+                <input type="text" value={form.area} onChange={e => setForm({...form, area: e.target.value})} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* תאריכים - יום יחיד או טווח */}
+        <div style={{background:C.cardA,borderRadius:10,padding:10}}>
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <button onClick={() => setForm({...form, isRange: false})} style={{flex:1,padding:8,borderRadius:6,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:!form.isRange ? C.prp : "#fff",color:!form.isRange ? "#fff" : C.txt}}>📅 יום יחיד</button>
+            <button onClick={() => setForm({...form, isRange: true})} style={{flex:1,padding:8,borderRadius:6,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:form.isRange ? C.prp : "#fff",color:form.isRange ? "#fff" : C.txt}}>📆 טווח תאריכים</button>
+          </div>
+          {!form.isRange ? (
+            <div>
+              <div style={{fontSize:10,color:C.txtM,marginBottom:3,fontWeight:500}}>תאריך ביצוע</div>
+              <input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff"}} />
+            </div>
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              <div>
+                <div style={{fontSize:10,color:C.txtM,marginBottom:3,fontWeight:500}}>התחלה</div>
+                <input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff"}} />
+              </div>
+              <div>
+                <div style={{fontSize:10,color:C.txtM,marginBottom:3,fontWeight:500}}>סוף</div>
+                <input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff"}} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* מחיר */}
+        <div>
+          <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>מחיר כולל ללקוח ₪</div>
+          <input type="number" value={form.totalPrice} onChange={e => setForm({...form, totalPrice: e.target.value})} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}} />
+        </div>
+
+        {/* תיאור */}
+        <div>
+          <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>תיאור הפרויקט (אופציונלי)</div>
+          <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={2} placeholder="תיאור פרטים על העבודה..." style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff",resize:"vertical"}} />
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginTop:14}}>
+        <button onClick={save} style={{flex:1,background:C.prp,color:"#fff",border:"none",borderRadius:10,padding:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>🚧 צור פרויקט</button>
+        <button onClick={onClose} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:10,padding:12,fontSize:14,cursor:"pointer"}}>ביטול</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PROJECT DAY CARD - כרטיס פרויקט בתוך יום
+// ═══════════════════════════════════════════════════════════════════
+function ProjectDayCard({ project: p, client, isExpanded, onToggleExpand, onToggleDone, onDelete, onUpdate, onAddExpense, onRemoveExpense }) {
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const isDone = p.status === "done";
+
+  const cc = p.city ? CITY_COLORS[p.city] : null;
+
+  const expensesTotal = (p.expenses || []).reduce((s, e) => s + (e.amount || 0), 0);
+  const profit = (p.totalPrice || 0) - expensesTotal;
+
+  return (
+    <div style={{background:C.card,borderRadius:12,border:`2px solid ${isDone ? C.grnL : C.prp}`,padding:12,marginBottom:8,opacity:isDone ? 0.7 : 1}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+        <button onClick={onToggleDone} style={{
+          width:40,height:40,borderRadius:"50%",
+          border:`2px solid ${isDone ? C.grn : C.prp}`,
+          background:isDone ? C.grn : "#fff",
+          color:isDone ? "#fff" : C.prp,
+          cursor:"pointer",fontSize:20,fontWeight:700,
+          flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"
+        }}>✓</button>
+
+        <div onClick={onToggleExpand} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,background:C.prpB,color:C.prp,padding:"2px 8px",borderRadius:10,fontWeight:700}}>🚧 פרויקט</span>
+            <span style={{fontSize:15,fontWeight:700,color:C.txt,textDecoration:isDone ? "line-through" : "none"}}>{p.title}</span>
+          </div>
+          {(p.clientName || client) && (
+            <div style={{fontSize:12,color:C.txtM,marginBottom:2}}>
+              👤 {client ? client.name : p.clientName}
+              {cc && <span style={{fontSize:10,background:cc.bg,color:cc.text,padding:"1px 6px",borderRadius:8,marginRight:6}}>{p.city}</span>}
+            </div>
+          )}
+          <div style={{fontSize:11,color:C.txtM}}>
+            {p.isRange ? `📆 ${fmtDM(p.startDate)}–${fmtDM(p.endDate)}` : `📅 ${fmtDM(p.startDate)}`}
+            {p.totalPrice > 0 && <span> · ₪{p.totalPrice.toLocaleString()}</span>}
+            {expensesTotal > 0 && <span style={{color:C.red}}> · הוצאות ₪{expensesTotal.toLocaleString()}</span>}
+          </div>
+        </div>
+
+        <button onClick={onDelete} style={{background:"none",border:"none",color:C.red,fontSize:20,cursor:"pointer",padding:4,flexShrink:0}}>×</button>
+      </div>
+
+      {/* תיאור */}
+      {p.description && (
+        <div style={{marginTop:8,background:C.prpB,border:`1px solid ${C.prp}`,borderRight:`3px solid ${C.prp}`,borderRadius:6,padding:"6px 10px"}}>
+          <div style={{fontSize:13,color:C.txt,whiteSpace:"pre-wrap"}}>{p.description}</div>
+        </div>
+      )}
+
+      {/* תצוגה מורחבת */}
+      {isExpanded && (
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.bdr}`}}>
+          {/* הוצאות */}
+          <div style={{fontSize:12,fontWeight:700,color:C.red,marginBottom:6}}>💸 הוצאות ({(p.expenses || []).length})</div>
+          {(p.expenses || []).map(e => (
+            <div key={e.id} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 8px",background:C.redB,borderRadius:6,marginBottom:4}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,color:C.txt}}>{e.desc}</div>
+                <div style={{fontSize:10,color:C.txtM}}>{fmtDM(e.date)}</div>
+              </div>
+              <span style={{fontSize:13,fontWeight:700,color:C.red}}>₪{e.amount}</span>
+              <button onClick={() => onRemoveExpense(e.id)} style={{background:"none",border:"none",color:C.red,fontSize:14,cursor:"pointer",padding:0}}>×</button>
+            </div>
+          ))}
+
+          {showExpenseForm ? (
+            <ExpenseForm onSave={(desc, amount, date) => { onAddExpense(desc, amount, date); setShowExpenseForm(false); }} onCancel={() => setShowExpenseForm(false)} />
+          ) : (
+            <button onClick={() => setShowExpenseForm(true)} style={{width:"100%",marginTop:4,background:C.redB,color:C.red,border:`1px dashed ${C.red}`,borderRadius:8,padding:10,fontSize:12,fontWeight:600,cursor:"pointer"}}>+ הוסף הוצאה</button>
+          )}
+
+          {/* סיכום רווח */}
+          {p.totalPrice > 0 && (
+            <div style={{marginTop:10,padding:10,background:profit >= 0 ? C.grnP : C.redB,borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:C.txtM,fontWeight:600}}>רווח נקי:</span>
+              <span style={{fontSize:15,fontWeight:700,color:profit >= 0 ? C.grn : C.red}}>₪{profit.toLocaleString()}</span>
+            </div>
+          )}
+
+          <button onClick={onToggleExpand} style={{width:"100%",marginTop:8,background:"none",color:C.txtM,border:"none",padding:6,fontSize:11,cursor:"pointer"}}>סגור</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// טופס הוספת הוצאה לפרויקט
+function ExpenseForm({ onSave, onCancel }) {
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(iso(new Date()));
+
+  const save = () => {
+    if (!desc.trim()) { alert("נא הכנס תיאור"); return; }
+    onSave(desc.trim(), Number(amount) || 0, date);
+    setDesc("");
+    setAmount("");
+  };
+
+  return (
+    <div style={{marginTop:6,background:C.redB,border:`1px solid ${C.red}`,borderRadius:8,padding:10}}>
+      <div style={{fontSize:11,color:C.red,fontWeight:700,marginBottom:6}}>💸 הוצאה חדשה</div>
+      <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="תיאור (חומרים, קבלן משנה...)" style={{width:"100%",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:13,marginBottom:6,background:"#fff"}} autoFocus />
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1.3fr",gap:6,marginBottom:6}}>
+        <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="₪" style={{width:"100%",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff"}} />
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{width:"100%",padding:"8px 10px",borderRadius:6,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff"}} />
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={save} style={{flex:1,background:C.red,color:"#fff",border:"none",borderRadius:6,padding:8,fontSize:12,fontWeight:600,cursor:"pointer"}}>הוסף</button>
+        <button onClick={onCancel} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:6,padding:8,fontSize:12,cursor:"pointer"}}>ביטול</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ADD CLIENT TO DAY
+// ═══════════════════════════════════════════════════════════════════
+function AddClientToDay({ availableClients, onAdd, onClose }) {
+  const [search, setSearch] = useState("");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [recurring, setRecurring] = useState(true);  // ברירת מחדל: כן לסדרה
+
+  const filtered = availableClients.filter(c => {
+    if (cityFilter !== "all" && c.city !== cityFilter) return false;
+    if (search && !c.name.includes(search)) return false;
+    return true;
+  });
+
+  // קבץ לפי עיר
+  const byCity = {};
+  filtered.forEach(c => {
+    if (!byCity[c.city]) byCity[c.city] = [];
+    byCity[c.city].push(c);
+  });
+
+  return (
+    <div style={{background:C.card,borderRadius:14,border:`2px solid ${C.grn}`,padding:14,marginTop:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.grn}}>בחר לקוח להוספה</div>
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,color:C.txtM,cursor:"pointer"}}>×</button>
+      </div>
+
+      {/* טוגל שיבוץ חוזר */}
+      <div onClick={() => setRecurring(!recurring)} style={{
+        display:"flex",
+        alignItems:"center",
+        gap:8,
+        padding:"8px 12px",
+        background:recurring ? C.grnP : C.cardA,
+        border:`1.5px solid ${recurring ? C.grn : C.bdr}`,
+        borderRadius:10,
+        marginBottom:10,
+        cursor:"pointer"
+      }}>
+        <div style={{
+          width:20,height:20,
+          borderRadius:4,
+          border:`2px solid ${recurring ? C.grn : C.bdr}`,
+          background:recurring ? C.grn : "#fff",
+          color:"#fff",
+          fontSize:14,fontWeight:700,
+          display:"flex",alignItems:"center",justifyContent:"center",
+          flexShrink:0
+        }}>{recurring ? "✓" : ""}</div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.txt}}>🔁 שבץ אוטומטית 3 חודשים קדימה</div>
+          <div style={{fontSize:10,color:C.txtM,marginTop:1}}>לפי תדירות הלקוח (שבועי = 4 בחודש, חודשי = 1 וכו')</div>
+        </div>
+      </div>
+
+      <input
+        type="text"
+        placeholder="🔍 חיפוש לקוח..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff",marginBottom:8}}
+      />
+      <div style={{display:"flex",gap:6,marginBottom:10}}>
+        {["all","ירושלים","בית שמש"].map(city => (
+          <button key={city}
+                  onClick={() => setCityFilter(city)}
+                  style={{
+                    flex:1,padding:"6px",borderRadius:8,border:"none",cursor:"pointer",
+                    fontSize:12,fontWeight:600,
+                    background:cityFilter === city ? (city === "ירושלים" ? CITY_COLORS["ירושלים"].border : city === "בית שמש" ? CITY_COLORS["בית שמש"].border : C.grn) : C.cardA,
+                    color:cityFilter === city ? "#fff" : C.txtM
+                  }}>
+            {city === "all" ? "הכל" : city}
+          </button>
+        ))}
+      </div>
+      <div style={{maxHeight:400,overflowY:"auto"}}>
+        {Object.entries(byCity).map(([city, clients]) => {
+          const cc = CITY_COLORS[city];
+          return (
+            <div key={city} style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:cc.text,marginBottom:6,paddingRight:4}}>
+                <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:cc.border,marginLeft:6}}></span>
+                {city} ({clients.length})
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {clients.map(c => (
+                  <button key={c.id} onClick={() => { onAdd(c.id, recurring); onClose(); }} style={{
+                    background:cc.bg,color:cc.text,border:`1px solid ${cc.border}`,
+                    borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:500,cursor:"pointer"
+                  }}>
+                    + {c.name} <span style={{opacity:0.7,marginRight:4}}>₪{c.price}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div style={{textAlign:"center",color:C.txtL,padding:20,fontSize:13}}>לא נמצאו לקוחות</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CLIENTS VIEW - ניהול לקוחות
+// ═══════════════════════════════════════════════════════════════════
+function ClientsView({ data, setModal, editClient, deleteClient }) {
+  const [search, setSearch] = useState("");
+  const [cityFilter, setCityFilter] = useState("all");
+
+  // סדר ערים: ירושלים קודם, בית שמש אחרי
+  const cityOrder = { "ירושלים": 0, "בית שמש": 1 };
+
+  const filtered = data.clients
+    .filter(c => {
+      if (cityFilter !== "all" && c.city !== cityFilter) return false;
+      if (search && !c.name.includes(search)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // קודם לפי עיר
+      const ca = cityOrder[a.city] ?? 99;
+      const cb = cityOrder[b.city] ?? 99;
+      if (ca !== cb) return ca - cb;
+      // אח"כ לפי שם בעברית (א-ב-ג...)
+      return a.name.localeCompare(b.name, "he");
+    });
+
+  return (
+    <div style={{padding:12,paddingBottom:80}}>
+      {/* חיפוש וסינון */}
+      <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:12,marginBottom:10}}>
+        <input
+          type="text"
+          placeholder="🔍 חיפוש לקוח..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:13,background:"#fff",marginBottom:8}}
+        />
+        <div style={{display:"flex",gap:6}}>
+          {["all","ירושלים","בית שמש"].map(city => (
+            <button key={city}
+                    onClick={() => setCityFilter(city)}
+                    style={{
+                      flex:1,padding:"8px",borderRadius:8,border:"none",cursor:"pointer",
+                      fontSize:12,fontWeight:600,
+                      background:cityFilter === city ? (city === "ירושלים" ? CITY_COLORS["ירושלים"].border : city === "בית שמש" ? CITY_COLORS["בית שמש"].border : C.grn) : C.cardA,
+                      color:cityFilter === city ? "#fff" : C.txtM
+                    }}>
+              {city === "all" ? `הכל (${data.clients.length})` : `${city} (${data.clients.filter(c => c.city === city).length})`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* כפתור הוספה */}
+      <button onClick={() => setModal({type:"addClient"})} style={{width:"100%",background:C.grn,color:"#fff",border:"none",borderRadius:12,padding:12,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}}>+ לקוח חדש</button>
+
+      {/* רשימה */}
+      <div>
+        {filtered.map((c, idx) => {
+          const cc = CITY_COLORS[c.city];
+          // הצג כותרת של עיר כשמתחיל בלוק חדש
+          const prevCity = idx > 0 ? filtered[idx-1].city : null;
+          const showCityHeader = c.city !== prevCity;
+          const cityClientCount = filtered.filter(x => x.city === c.city).length;
+
+          return (
+            <React.Fragment key={c.id}>
+              {showCityHeader && cityFilter === "all" && (
+                <div style={{display:"flex",alignItems:"center",gap:6,margin:"12px 4px 6px",paddingRight:2}}>
+                  <span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:cc.border}}></span>
+                  <span style={{fontSize:13,fontWeight:700,color:cc.text}}>{c.city}</span>
+                  <span style={{fontSize:11,color:C.txtL}}>({cityClientCount})</span>
+                  <div style={{flex:1,height:1,background:C.bdrL,marginRight:6}}></div>
+                </div>
+              )}
+              <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.bdr}`,padding:12,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                      <span style={{fontSize:15,fontWeight:700,color:C.txt}}>{c.name}</span>
+                      <span style={{fontSize:10,background:cc.bg,color:cc.text,padding:"2px 8px",borderRadius:10,fontWeight:600}}>{c.city}</span>
+                      {c.area && <span style={{fontSize:10,color:C.txtM}}>· {c.area}</span>}
+                    </div>
+                    <div style={{fontSize:12,color:C.txtM}}>₪{c.price} · {freqLabel(c.frequency)}</div>
+                    {c.note && <div style={{fontSize:11,color:C.org,marginTop:4}}>📌 {c.note}</div>}
+                  </div>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={() => setModal({type:"editClient",data:c})} style={{background:C.bluB,color:C.blu,border:"none",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14}}>✏️</button>
+                    <button onClick={() => { if (confirm(`למחוק את ${c.name}?`)) deleteClient(c.id); }} style={{background:C.redB,color:C.red,border:"none",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:14}}>🗑️</button>
+                  </div>
+                </div>
+              </div>
+            </React.Fragment>
+          );
+        })}
+        {filtered.length === 0 && <div style={{textAlign:"center",color:C.txtL,padding:20,fontSize:13}}>לא נמצאו לקוחות</div>}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SUMMARY VIEW - סיכום חודשי
+// ═══════════════════════════════════════════════════════════════════
+function SummaryView({ data, monthView, setMonthView, togglePaid }) {
+  const mk = monthKey(monthView);
+  const mStatus = data.monthlyStatus[mk] || {};
+
+  const changeMonth = delta => {
+    const n = new Date(monthView);
+    n.setMonth(n.getMonth() + delta);
+    setMonthView(n);
+  };
+
+  // סדר: ירושלים קודם, בית שמש אחרי, ובתוך כל עיר אלף-בית
+  const cityOrderSummary = { "ירושלים": 0, "בית שמש": 1 };
+  const byCity = {};
+  data.clients.forEach(c => {
+    if (!byCity[c.city]) byCity[c.city] = [];
+    byCity[c.city].push(c);
+  });
+  // מיון א-ב בתוך כל עיר
+  Object.keys(byCity).forEach(city => {
+    byCity[city].sort((a, b) => a.name.localeCompare(b.name, "he"));
+  });
+  // סדר הערים (ירושלים קודם)
+  const orderedCities = Object.keys(byCity).sort((a, b) =>
+    (cityOrderSummary[a] ?? 99) - (cityOrderSummary[b] ?? 99)
+  );
+
+  return (
+    <div style={{padding:12,paddingBottom:80}}>
+      {/* ניווט חודשי */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:"10px 12px",marginBottom:12}}>
+        <button onClick={() => changeMonth(-1)} style={{background:"none",border:"none",fontSize:22,color:C.grn,cursor:"pointer"}}>→</button>
+        <div style={{fontSize:16,fontWeight:700,color:C.grn}}>{MONTHS[monthView.getMonth()]} {monthView.getFullYear()}</div>
+        <button onClick={() => changeMonth(1)} style={{background:"none",border:"none",fontSize:22,color:C.grn,cursor:"pointer"}}>←</button>
+      </div>
+
+      {orderedCities.map(city => {
+        const clients = byCity[city];
+        const cc = CITY_COLORS[city];
+        const expected = clients.reduce((s, c) => s + c.price * freqCount(c.frequency), 0);
+        const paid = clients.reduce((s, c) => {
+          const st = mStatus[c.id] || {};
+          return st.paid ? s + c.price * freqCount(c.frequency) : s;
+        }, 0);
+        return (
+          <div key={city} style={{background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:14,marginBottom:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+              <div style={{fontSize:17,fontWeight:700,color:cc.text}}>
+                <span style={{display:"inline-block",width:10,height:10,borderRadius:"50%",background:cc.border,marginLeft:6}}></span>
+                {city}
+              </div>
+              <div style={{display:"flex",gap:6,fontSize:11}}>
+                <span style={{background:C.grnP,color:C.grn,padding:"3px 10px",borderRadius:10,fontWeight:600}}>נגבה: ₪{paid.toLocaleString()}</span>
+                <span style={{background:C.orgB,color:C.org,padding:"3px 10px",borderRadius:10,fontWeight:600}}>חוב: ₪{(expected-paid).toLocaleString()}</span>
+              </div>
+            </div>
+            <div>
+              {clients.map(c => {
+                const st = mStatus[c.id] || { paid:false, visitsDone:0 };
+                const exp = freqCount(c.frequency);
+                return (
+                  <div key={c.id} style={{display:"flex",alignItems:"center",padding:"8px 4px",borderBottom:`1px solid ${C.bdrL}`,gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:500,color:C.txt}}>{c.name}</div>
+                      <div style={{fontSize:10,color:C.txtM}}>₪{c.price} × {exp} = ₪{(c.price*exp).toLocaleString()} · {st.visitsDone}/{exp} בוצעו</div>
+                    </div>
+                    <button onClick={() => togglePaid(mk, c.id)} style={{
+                      background:st.paid ? C.grn : C.cardA,
+                      color:st.paid ? "#fff" : C.txtM,
+                      border:`1px solid ${st.paid ? C.grn : C.bdr}`,
+                      borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer",
+                      minWidth:70
+                    }}>
+                      {st.paid ? "✓ שולם" : "○ ממתין"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODAL - הוספת/עריכת לקוח + רשימת לא שובצו
+// ═══════════════════════════════════════════════════════════════════
+function Modal({ modal, setModal, data, addClient, editClient, addOneTimeJob, onClose }) {
+  if (modal.type === "unscheduled") {
+    return <UnscheduledModal data={data} onClose={onClose} />;
+  }
+  if (modal.type === "addOneTimeJob") {
+    return <OneTimeJobModal data={data} onSave={addOneTimeJob} onClose={onClose} />;
+  }
+
+  const isEdit = modal.type === "editClient";
+  const [form, setForm] = useState(isEdit ? modal.data : {
+    name:"", price:"", frequency:"monthly", city:"ירושלים", area:"", note:"", permanentNote:""
+  });
+
+  const save = () => {
+    if (!form.name || !form.price) { alert("שם ומחיר חובה"); return; }
+    const client = { ...form, price:Number(form.price) };
+    if (isEdit) editClient(client);
+    else addClient(client);
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200,padding:0}}>
+      <div onClick={e => e.stopPropagation()} style={{background:C.card,borderTopLeftRadius:20,borderTopRightRadius:20,padding:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:18,fontWeight:700,color:C.grn}}>{isEdit ? "עריכת לקוח" : "לקוח חדש"}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:C.txtM,cursor:"pointer"}}>×</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <Field label="שם הלקוח *" value={form.name} onChange={v => setForm({...form,name:v})} />
+          <Field label="מחיר לביקור ₪ *" value={form.price} onChange={v => setForm({...form,price:v})} type="number" />
+          <SelectField label="עיר" value={form.city} options={["ירושלים","בית שמש"]} onChange={v => setForm({...form,city:v})} />
+          <SelectField label="תדירות" value={form.frequency} options={[
+            ["monthly","פעם בחודש"],["twice","פעמיים בחודש"],["three","3 פעמים"],["four","4 פעמים"],["weekly","שבועי (4 ביקורים)"]
+          ]} onChange={v => setForm({...form,frequency:v})} />
+          <Field label="אזור / שכונה (אופציונלי)" value={form.area} onChange={v => setForm({...form,area:v})} />
+          <Field label="הערה מנהלית (לא נראית לעובדים)" value={form.note} onChange={v => setForm({...form,note:v})} />
+          <div>
+            <div style={{fontSize:11,color:C.blu,marginBottom:4,fontWeight:700}}>📌 הערה קבועה (תופיע בכל ביקור)</div>
+            <textarea value={form.permanentNote || ""} onChange={e => setForm({...form,permanentNote:e.target.value})} rows={2} placeholder="לדוגמה: מפתח תחת העציץ, הכלב נושך, דלת אחורית פתוחה..." style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff",resize:"vertical"}} />
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          <button onClick={save} style={{flex:1,background:C.grn,color:"#fff",border:"none",borderRadius:10,padding:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>{isEdit ? "עדכן" : "הוסף"}</button>
+          <button onClick={onClose} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:10,padding:12,fontSize:14,cursor:"pointer"}}>ביטול</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OneTimeJobModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({
+    clientName: "",
+    city: "ירושלים",
+    price: "",
+    date: iso(new Date()),
+    note: ""
+  });
+  const [linkToExisting, setLinkToExisting] = useState(false);
+  const [existingClientId, setExistingClientId] = useState("");
+
+  const save = () => {
+    const name = linkToExisting
+      ? (data.clients.find(c => c.id === existingClientId)?.name || "")
+      : form.clientName.trim();
+    if (!name) { alert("נא הכנס שם לקוח"); return; }
+    if (!form.price) { alert("נא הכנס מחיר"); return; }
+    const city = linkToExisting
+      ? (data.clients.find(c => c.id === existingClientId)?.city || "ירושלים")
+      : form.city;
+    onSave({
+      clientName: name,
+      city,
+      price: Number(form.price),
+      date: form.date,
+      note: form.note,
+      linkedClientId: linkToExisting ? existingClientId : null
+    });
+    onClose();
+  };
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}>
+      <div onClick={e => e.stopPropagation()} style={{background:C.card,borderTopLeftRadius:20,borderTopRightRadius:20,padding:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:18,fontWeight:700,color:C.prp}}>🔨 עבודה חד-פעמית</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:C.txtM,cursor:"pointer"}}>×</button>
+        </div>
+
+        <div style={{background:C.prpB,border:`1px solid ${C.prp}`,borderRadius:8,padding:10,marginBottom:12,fontSize:12,color:C.prp}}>
+          💡 לעבודה חד-פעמית - לא תחזוקה רגילה (שתילה חדשה, ניקוי מיוחד, קטיף וכו')
+        </div>
+
+        <div style={{display:"flex",gap:6,marginBottom:12}}>
+          <button onClick={() => setLinkToExisting(false)} style={{flex:1,padding:8,borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:!linkToExisting ? C.prp : C.cardA,color:!linkToExisting ? "#fff" : C.txtM}}>לקוח חדש</button>
+          <button onClick={() => setLinkToExisting(true)} style={{flex:1,padding:8,borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:linkToExisting ? C.prp : C.cardA,color:linkToExisting ? "#fff" : C.txtM}}>לקוח קיים</button>
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {linkToExisting ? (
+            <div>
+              <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>בחר לקוח קיים</div>
+              <select value={existingClientId} onChange={e => setExistingClientId(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}}>
+                <option value="">-- בחר --</option>
+                {data.clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.city})</option>)}
+              </select>
+            </div>
+          ) : (
+            <>
+              <Field label="שם הלקוח *" value={form.clientName} onChange={v => setForm({...form,clientName:v})} />
+              <SelectField label="עיר" value={form.city} options={["ירושלים","בית שמש"]} onChange={v => setForm({...form,city:v})} />
+            </>
+          )}
+          <Field label="מחיר ₪ *" value={form.price} onChange={v => setForm({...form,price:v})} type="number" />
+          <div>
+            <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>תאריך מתוכנן</div>
+            <input type="date" value={form.date} onChange={e => setForm({...form,date:e.target.value})} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}} />
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>תיאור / הערה</div>
+            <textarea value={form.note} onChange={e => setForm({...form,note:e.target.value})} rows={2} placeholder="לדוגמה: שתילת עץ זית, ניקוי חצר אחרי סופה..." style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff",resize:"vertical"}} />
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          <button onClick={save} style={{flex:1,background:C.prp,color:"#fff",border:"none",borderRadius:10,padding:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>הוסף עבודה</button>
+          <button onClick={onClose} style={{flex:1,background:C.cardA,color:C.txtM,border:`1px solid ${C.bdr}`,borderRadius:10,padding:12,fontSize:14,cursor:"pointer"}}>ביטול</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UnscheduledModal({ data, onClose }) {
+  // חשב לקוחות לא שובצו החודש הנוכחי
+  const mk = monthKey(new Date());
+  const scheduledCount = {};
+  Object.entries(data.schedule || {}).forEach(([k, items]) => {
+    if (k.startsWith(mk)) {
+      (items || []).forEach(item => {
+        scheduledCount[item.clientId] = (scheduledCount[item.clientId] || 0) + 1;
+      });
+    }
+  });
+
+  const unscheduled = data.clients.filter(c => {
+    const needed = freqCount(c.frequency);
+    return (scheduledCount[c.id] || 0) < needed;
+  });
+
+  const byCity = {};
+  unscheduled.forEach(c => {
+    if (!byCity[c.city]) byCity[c.city] = [];
+    byCity[c.city].push(c);
+  });
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200}}>
+      <div onClick={e => e.stopPropagation()} style={{background:C.card,borderTopLeftRadius:20,borderTopRightRadius:20,padding:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontSize:17,fontWeight:700,color:C.org}}>📌 לא שובצו החודש ({unscheduled.length})</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,color:C.txtM,cursor:"pointer"}}>×</button>
+        </div>
+        {Object.entries(byCity).map(([city, clients]) => {
+          const cc = CITY_COLORS[city];
+          return (
+            <div key={city} style={{marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700,color:cc.text,marginBottom:6}}>
+                <span style={{display:"inline-block",width:8,height:8,borderRadius:"50%",background:cc.border,marginLeft:6}}></span>
+                {city} ({clients.length})
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {clients.map(c => {
+                  const needed = freqCount(c.frequency);
+                  const sched = scheduledCount[c.id] || 0;
+                  const remaining = needed - sched;
+                  return (
+                    <div key={c.id} style={{background:cc.bg,color:cc.text,border:`1px solid ${cc.border}`,borderRadius:10,padding:"6px 10px",fontSize:12,fontWeight:500}}>
+                      {c.name} {remaining > 1 && <span style={{opacity:0.7}}>×{remaining}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        <div style={{fontSize:11,color:C.txtM,marginTop:10,textAlign:"center"}}>לחץ על יום ביומן כדי לשבץ</div>
+      </div>
+    </div>
+  );
+}
+
+// Form fields
+function Field({ label, value, onChange, type="text" }) {
+  return (
+    <div>
+      <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>{label}</div>
+      <input type={type} value={value || ""} onChange={e => onChange(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}} />
+    </div>
+  );
+}
+
+function SelectField({ label, value, onChange, options }) {
+  const opts = options.map(o => Array.isArray(o) ? o : [o, o]);
+  return (
+    <div>
+      <div style={{fontSize:11,color:C.txtM,marginBottom:4,fontWeight:500}}>{label}</div>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${C.bdr}`,fontSize:14,background:"#fff"}}>
+        {opts.map(([val,lbl]) => <option key={val} value={val}>{lbl}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
