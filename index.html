@@ -121,6 +121,118 @@ const DAYNAMES = ["ראשון","שני","שלישי","רביעי","חמישי","
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const WORK_DAYS = [0,1,2,3,4]; // ראשון-חמישי
 
+// ═══════════════════════════════════════════════════════════════════
+// לוח חגים יהודיים - תאריכים גרגוריאניים
+// type: "holiday" = חג מלא, "eve" = ערב חג, "chol" = חול המועד
+// ═══════════════════════════════════════════════════════════════════
+const JEWISH_HOLIDAYS = {
+  // ===== 2025 (תשפ"ה / תשפ"ו) =====
+  "2025-04-12": { name: "ערב פסח", type: "eve" },
+  "2025-04-13": { name: "פסח א'", type: "holiday" },
+  "2025-04-14": { name: "חול המועד פסח", type: "chol" },
+  "2025-04-15": { name: "חול המועד פסח", type: "chol" },
+  "2025-04-16": { name: "חול המועד פסח", type: "chol" },
+  "2025-04-17": { name: "חול המועד פסח", type: "chol" },
+  "2025-04-18": { name: "חול המועד פסח", type: "chol" },
+  "2025-04-19": { name: "שביעי של פסח", type: "holiday" },
+  "2025-05-12": { name: "ערב ל\"ג בעומר", type: "eve" },
+  "2025-05-13": { name: "ל\"ג בעומר", type: "holiday" },
+  "2025-06-01": { name: "ערב שבועות", type: "eve" },
+  "2025-06-02": { name: "שבועות", type: "holiday" },
+  "2025-08-02": { name: "תשעה באב", type: "holiday" },
+  "2025-09-22": { name: "ערב ראש השנה", type: "eve" },
+  "2025-09-23": { name: "ראש השנה א'", type: "holiday" },
+  "2025-09-24": { name: "ראש השנה ב'", type: "holiday" },
+  "2025-10-01": { name: "ערב יום כיפור", type: "eve" },
+  "2025-10-02": { name: "יום כיפור", type: "holiday" },
+  "2025-10-06": { name: "ערב סוכות", type: "eve" },
+  "2025-10-07": { name: "סוכות א'", type: "holiday" },
+  "2025-10-08": { name: "חול המועד סוכות", type: "chol" },
+  "2025-10-09": { name: "חול המועד סוכות", type: "chol" },
+  "2025-10-10": { name: "חול המועד סוכות", type: "chol" },
+  "2025-10-11": { name: "חול המועד סוכות", type: "chol" },
+  "2025-10-12": { name: "חול המועד סוכות", type: "chol" },
+  "2025-10-13": { name: "הושענא רבה", type: "chol" },
+  "2025-10-14": { name: "שמיני עצרת/שמחת תורה", type: "holiday" },
+  "2025-12-14": { name: "ערב חנוכה", type: "eve" },
+
+  // ===== 2026 (תשפ"ו / תשפ"ז) =====
+  "2026-03-04": { name: "ערב פורים", type: "eve" },
+  "2026-03-05": { name: "פורים", type: "holiday" },
+  "2026-04-01": { name: "ערב פסח", type: "eve" },
+  "2026-04-02": { name: "פסח א'", type: "holiday" },
+  "2026-04-03": { name: "חול המועד פסח", type: "chol" },
+  "2026-04-04": { name: "חול המועד פסח", type: "chol" },
+  "2026-04-05": { name: "חול המועד פסח", type: "chol" },
+  "2026-04-06": { name: "חול המועד פסח", type: "chol" },
+  "2026-04-07": { name: "חול המועד פסח", type: "chol" },
+  "2026-04-08": { name: "שביעי של פסח", type: "holiday" },
+  "2026-04-21": { name: "ערב יום העצמאות", type: "eve" },
+  "2026-04-22": { name: "יום העצמאות", type: "holiday" },
+  "2026-05-04": { name: "ל\"ג בעומר", type: "holiday" },
+  "2026-05-21": { name: "ערב שבועות", type: "eve" },
+  "2026-05-22": { name: "שבועות", type: "holiday" },
+  "2026-07-23": { name: "תשעה באב", type: "holiday" },
+  "2026-09-11": { name: "ערב ראש השנה", type: "eve" },
+  "2026-09-12": { name: "ראש השנה א'", type: "holiday" },
+  "2026-09-13": { name: "ראש השנה ב'", type: "holiday" },
+  "2026-09-20": { name: "ערב יום כיפור", type: "eve" },
+  "2026-09-21": { name: "יום כיפור", type: "holiday" },
+  "2026-09-25": { name: "ערב סוכות", type: "eve" },
+  "2026-09-26": { name: "סוכות א'", type: "holiday" },
+  "2026-09-27": { name: "חול המועד סוכות", type: "chol" },
+  "2026-09-28": { name: "חול המועד סוכות", type: "chol" },
+  "2026-09-29": { name: "חול המועד סוכות", type: "chol" },
+  "2026-09-30": { name: "חול המועד סוכות", type: "chol" },
+  "2026-10-01": { name: "חול המועד סוכות", type: "chol" },
+  "2026-10-02": { name: "הושענא רבה", type: "chol" },
+  "2026-10-03": { name: "שמיני עצרת/שמחת תורה", type: "holiday" },
+  "2026-12-04": { name: "ערב חנוכה", type: "eve" },
+
+  // ===== 2027 (תשפ"ז / תשפ"ח) =====
+  "2027-03-22": { name: "ערב פורים", type: "eve" },
+  "2027-03-23": { name: "פורים", type: "holiday" },
+  "2027-04-21": { name: "ערב פסח", type: "eve" },
+  "2027-04-22": { name: "פסח א'", type: "holiday" },
+  "2027-04-23": { name: "חול המועד פסח", type: "chol" },
+  "2027-04-24": { name: "חול המועד פסח", type: "chol" },
+  "2027-04-25": { name: "חול המועד פסח", type: "chol" },
+  "2027-04-26": { name: "חול המועד פסח", type: "chol" },
+  "2027-04-27": { name: "חול המועד פסח", type: "chol" },
+  "2027-04-28": { name: "שביעי של פסח", type: "holiday" },
+  "2027-05-25": { name: "ל\"ג בעומר", type: "holiday" },
+  "2027-06-10": { name: "ערב שבועות", type: "eve" },
+  "2027-06-11": { name: "שבועות", type: "holiday" },
+  "2027-08-12": { name: "תשעה באב", type: "holiday" },
+  "2027-10-01": { name: "ערב ראש השנה", type: "eve" },
+  "2027-10-02": { name: "ראש השנה א'", type: "holiday" },
+  "2027-10-03": { name: "ראש השנה ב'", type: "holiday" },
+  "2027-10-10": { name: "ערב יום כיפור", type: "eve" },
+  "2027-10-11": { name: "יום כיפור", type: "holiday" },
+  "2027-10-15": { name: "ערב סוכות", type: "eve" },
+  "2027-10-16": { name: "סוכות א'", type: "holiday" },
+  "2027-10-17": { name: "חול המועד סוכות", type: "chol" },
+  "2027-10-18": { name: "חול המועד סוכות", type: "chol" },
+  "2027-10-19": { name: "חול המועד סוכות", type: "chol" },
+  "2027-10-20": { name: "חול המועד סוכות", type: "chol" },
+  "2027-10-21": { name: "חול המועד סוכות", type: "chol" },
+  "2027-10-22": { name: "הושענא רבה", type: "chol" },
+  "2027-10-23": { name: "שמיני עצרת/שמחת תורה", type: "holiday" },
+};
+
+// פונקציה לבדיקה אם תאריך הוא חג/ערב חג
+function getHoliday(dateKey) {
+  return JEWISH_HOLIDAYS[dateKey] || null;
+}
+
+// בדיקה אם להימנע משיבוץ אוטומטי בתאריך
+function isBlockedDay(dateKey) {
+  const h = getHoliday(dateKey);
+  if (!h) return false;
+  // חוסם: חג, ערב חג, חול המועד
+  return h.type === "holiday" || h.type === "eve" || h.type === "chol";
+}
+
 const uid = () => Math.random().toString(36).slice(2, 9);
 const iso = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth()+1).padStart(2,"0") + "-" + String(x.getDate()).padStart(2,"0"); };
 const monthKey = d => { const x = new Date(d); return x.getFullYear() + "-" + String(x.getMonth()+1).padStart(2,"0"); };
@@ -615,6 +727,7 @@ function App() {
 
   // חשב את התאריך הבא לפי תדירות - עם דחייה ליום עבודה קרוב
   // עבור בית שמש: מעדיף ראשון (0) או חמישי (4)
+  // דולג על חגים, ערבי חג, וחול המועד אוטומטית
   const computeNextDate = (baseDate, frequency, city = null) => {
     const base = new Date(baseDate);
     let next = new Date(base);
@@ -636,21 +749,27 @@ function App() {
     }
 
     // עבור בית שמש: העדף ראשון (0) או חמישי (4)
-    // מצא את היום הכי קרוב שהוא ראשון או חמישי (בטווח של ±3 ימים)
     if (city === "בית שמש") {
       const targetDow = next.getDay();
       if (targetDow !== 0 && targetDow !== 4) {
-        // חשב מרחק לראשון ולחמישי הקרובים ביותר
-        const distToSun = targetDow > 4 ? 7 - targetDow : -targetDow; // ראשון קרוב
-        const distToThu = 4 - targetDow; // חמישי קרוב (יכול להיות שלילי)
-
-        // בחר את המרחק הקטן יותר באופן מוחלט
+        const distToSun = targetDow > 4 ? 7 - targetDow : -targetDow;
+        const distToThu = 4 - targetDow;
         const bestDist = Math.abs(distToSun) <= Math.abs(distToThu) ? distToSun : distToThu;
-
-        // רק אם המרחק סביר (עד 3 ימים)
         if (Math.abs(bestDist) <= 3) {
           next.setDate(next.getDate() + bestDist);
         }
+      }
+    }
+
+    // דלג על חגים, ערבי חג וחול המועד - לדחות לאחר החג
+    let safetyCount = 30;
+    while (isBlockedDay(iso(next)) && safetyCount-- > 0) {
+      next.setDate(next.getDate() + 1);
+      // אחרי דחייה, ודא שזה יום עבודה
+      const newDow = next.getDay();
+      if (!WORK_DAYS.includes(newDow)) {
+        if (newDow === 5) next.setDate(next.getDate() + 2);
+        else if (newDow === 6) next.setDate(next.getDate() + 1);
       }
     }
 
@@ -658,6 +777,33 @@ function App() {
   };
 
   const addClientToDay = (dayKey, clientId, dayNote = "", createRecurring = false) => {
+    // בדיקת חג/ערב חג
+    const holiday = getHoliday(dayKey);
+    if (holiday) {
+      const typeLabel = holiday.type === "holiday" ? "חג" : holiday.type === "eve" ? "ערב חג" : "חול המועד";
+      const confirmMsg = `⚠️ שים לב!\n\n${dayKey} הוא ${typeLabel} (${holiday.name})\n\nהאם בכל זאת לשבץ?`;
+      if (!confirm(confirmMsg)) return;
+    }
+
+    // בדיקת ערבוב ערים באותו יום
+    const client = data.clients.find(c => c.id === clientId);
+    if (client && data.schedule[dayKey] && data.schedule[dayKey].length > 0) {
+      const existingItems = data.schedule[dayKey];
+      const existingCities = new Set();
+      existingItems.forEach(item => {
+        const c = data.clients.find(cl => cl.id === item.clientId);
+        if (c) existingCities.add(c.city);
+      });
+
+      // אם יש לקוחות מעיר אחרת - התרעה
+      if (existingCities.size > 0 && !existingCities.has(client.city)) {
+        const otherCities = Array.from(existingCities).join(", ");
+        const otherCount = existingItems.length;
+        const confirmCity = `⚠️ ערבוב ערים?\n\nאתה מנסה לשבץ לקוח מ${client.city}, אבל היום הזה יש כבר ${otherCount} לקוחות מ-${otherCities}.\n\nהאם בכל זאת לשבץ?`;
+        if (!confirm(confirmCity)) return;
+      }
+    }
+
     update(d => {
       if (!d.schedule[dayKey]) d.schedule[dayKey] = [];
 
@@ -2537,6 +2683,19 @@ function MonthlyCalendar({ monthView, setMonthView, data, onDayClick }) {
             return c && c.city === "בית שמש";
           }).length;
 
+          // בדיקת חג
+          const holiday = getHoliday(dy);
+          const isHoliday = holiday && holiday.type === "holiday";
+          const isEve = holiday && holiday.type === "eve";
+          const isChol = holiday && holiday.type === "chol";
+
+          // צבע רקע לפי חג
+          let bgColor = !isWorkDay ? C.cardA : isToday ? C.grnP : items.length > 0 ? C.card : "#fff";
+          let borderColor = isToday ? C.grn : C.bdr;
+          if (isHoliday) { bgColor = "#fde2e4"; borderColor = "#bc4749"; }
+          else if (isEve) { bgColor = "#fef3c7"; borderColor = "#e09f3e"; }
+          else if (isChol) { bgColor = "#fef3c7"; borderColor = "#e09f3e"; }
+
           return (
             <div key={i}
                  onClick={() => isWorkDay && onDayClick(dy)}
@@ -2544,8 +2703,8 @@ function MonthlyCalendar({ monthView, setMonthView, data, onDayClick }) {
                    minHeight:62,
                    padding:4,
                    borderRadius:8,
-                   border:`1px solid ${isToday ? C.grn : C.bdr}`,
-                   background:!isWorkDay ? C.cardA : isToday ? C.grnP : items.length > 0 ? C.card : "#fff",
+                   border:`1px solid ${borderColor}`,
+                   background:bgColor,
                    cursor:isWorkDay ? "pointer" : "default",
                    opacity:isWorkDay ? 1 : 0.4,
                    display:"flex",
@@ -2553,7 +2712,7 @@ function MonthlyCalendar({ monthView, setMonthView, data, onDayClick }) {
                    gap:2
                  }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:11,fontWeight:isToday ? 700 : 500,color:isToday ? C.grn : C.txt}}>
+                <span style={{fontSize:11,fontWeight:isToday ? 700 : 500,color:isToday ? C.grn : isHoliday ? "#bc4749" : C.txt}}>
                   {d.getDate()}
                 </span>
                 {items.length > 0 && (
@@ -2562,6 +2721,20 @@ function MonthlyCalendar({ monthView, setMonthView, data, onDayClick }) {
                   </span>
                 )}
               </div>
+              {/* שם החג אם יש */}
+              {holiday && (
+                <div style={{
+                  fontSize:8,
+                  fontWeight:700,
+                  color:isHoliday ? "#bc4749" : "#e09f3e",
+                  textAlign:"center",
+                  whiteSpace:"nowrap",
+                  overflow:"hidden",
+                  textOverflow:"ellipsis"
+                }}>
+                  🕎 {holiday.name}
+                </div>
+              )}
               {/* תצוגה של 2 לקוחות ראשונים עם צבע עיר */}
               <div style={{display:"flex",flexDirection:"column",gap:1,flex:1}}>
                 {items.slice(0, 2).map((item, j) => {
@@ -2651,6 +2824,23 @@ function DayView({ selectedDay, setSelectedDay, data, toggleVisitDone, addClient
 
   return (
     <div style={{padding:12,paddingBottom:80}}>
+      {/* באנר חג אם יש */}
+      {(() => {
+        const hol = getHoliday(selectedDay);
+        if (!hol) return null;
+        const colors = hol.type === "holiday"
+          ? { bg: "#fde2e4", border: "#bc4749", text: "#bc4749", icon: "🕎" }
+          : { bg: "#fef3c7", border: "#e09f3e", text: "#a55a0a", icon: "🕯️" };
+        const typeLabel = hol.type === "holiday" ? "חג" : hol.type === "eve" ? "ערב חג" : "חול המועד";
+        return (
+          <div style={{background:colors.bg,border:`2px solid ${colors.border}`,borderRadius:12,padding:10,marginBottom:12,textAlign:"center"}}>
+            <div style={{fontSize:13,fontWeight:700,color:colors.text}}>
+              {colors.icon} {typeLabel}: {hol.name}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ניווט יומי */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.card,borderRadius:14,border:`1px solid ${C.bdr}`,padding:"10px 12px",marginBottom:12}}>
         <button onClick={() => changeDay(-1)} style={{background:"none",border:"none",fontSize:22,color:C.grn,cursor:"pointer"}}>→</button>
